@@ -1,0 +1,10 @@
+{
+  "name": "Vocalis - Voice Journal & Markdown Vault",
+  "description": "Voice journaling app that transcribes audio thoughts into structured Markdown (.md) notes, preserves recordings, and automatically saves them to your chosen folder.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
