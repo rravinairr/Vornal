@@ -27,6 +27,8 @@ import {
   LogOut,
   User as UserIcon,
   ChevronDown,
+  BookOpen,
+  Menu,
 } from "lucide-react";
 import {
   JournalEntry,
@@ -77,6 +79,8 @@ import { DriveFolderManagerModal } from "./components/DriveFolderManagerModal";
 import { BreathingOrb } from "./components/BreathingOrb";
 import { AboutPrivacyModal } from "./components/AboutPrivacyModal";
 import { ThemeCustomizerModal } from "./components/ThemeCustomizerModal";
+import { SidebarDrawer } from "./components/SidebarDrawer";
+import { FloatingRecordButton } from "./components/FloatingRecordButton";
 
 interface Toast {
   id: number;
@@ -103,8 +107,8 @@ export default function App() {
   const [processingStep, setProcessingStep] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  // Transcription Engine: Gemini AI vs Native Browser Speech
-  const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>("gemini");
+  // Transcription Engine: Native Browser Speech by default (100% offline, zero API keys)
+  const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>("native");
   const nativeTranscriptRef = useRef<string>("");
   const recognizerRef = useRef<any>(null);
 
@@ -113,7 +117,8 @@ export default function App() {
   const [accentColor, setAccentColor] = useState<AccentColor>("indigo");
   const [customHex, setCustomHex] = useState("#6366F1");
 
-  // Modals state
+  // Modals & Sidebar state
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isDriveFolderModalOpen, setIsDriveFolderModalOpen] = useState(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
@@ -787,15 +792,66 @@ export default function App() {
         transcript: aiResult.transcript || entry.transcript,
         markdown: aiResult.markdown || entry.markdown,
         transcriptionStatus: "completed",
+        engineUsed: "gemini",
         errorMessage: undefined,
       };
 
       await saveJournalToDB(updated);
       setJournals((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
       setSelectedEntry(updated);
-      showToast("Transcription completed successfully!", "success");
+      showToast("Transcription completed with Gemini AI!", "success");
     } catch (err: any) {
       showToast(`Retry failed: ${err.message}`, "error");
+    } finally {
+      setIsProcessing(false);
+      setProcessingStep("");
+    }
+  };
+
+  const handleEnhanceWithGemini = async (entry: JournalEntry) => {
+    try {
+      setIsProcessing(true);
+      setProcessingStep("Enhancing reflection with Gemini AI...");
+
+      const base64Data = await blobToBase64(entry.audioBlob);
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioBase64: base64Data,
+          mimeType: entry.audioBlob.type || "audio/webm",
+          dateString: new Date(entry.timestamp).toISOString(),
+          audioFileName: entry.audioFileName,
+          userTags: entry.userTags || [],
+        }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        throw new Error(errJson.error || `Server responded with ${response.status}`);
+      }
+
+      const aiResult = await response.json();
+      const updated: JournalEntry = {
+        ...entry,
+        title: aiResult.title || entry.title,
+        mood: aiResult.mood || entry.mood,
+        keyThemes: aiResult.keyThemes || entry.keyThemes,
+        summary: aiResult.summary || entry.summary,
+        actionItems: aiResult.actionItems || entry.actionItems,
+        transcript: aiResult.transcript || entry.transcript,
+        markdown: aiResult.markdown || entry.markdown,
+        transcriptionStatus: "completed",
+        engineUsed: "gemini",
+        errorMessage: undefined,
+      };
+
+      await saveJournalToDB(updated);
+      setJournals((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
+      setSelectedEntry(updated);
+      showToast("Enhanced with Gemini AI! Executive summary & tone ready.", "success");
+    } catch (err: any) {
+      showToast(`Enhancement failed: ${err.message}`, "error");
     } finally {
       setIsProcessing(false);
       setProcessingStep("");
@@ -858,83 +914,137 @@ export default function App() {
         isRecording={isRecording}
       />
 
-      {/* Top Bar Contract (3 Zones) */}
-      <header className="sticky top-0 z-40 bg-white/90 dark:bg-stone-900/90 backdrop-blur-md border-b border-stone-200/80 dark:border-stone-800 pt-safe">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-4">
+      {/* Top Bar Contract (Glassy, never trims on tablet, icon-driven buttons) */}
+      <header className="sticky top-0 z-40 bg-white/75 dark:bg-stone-900/75 backdrop-blur-xl border-b border-stone-200/50 dark:border-stone-800/50 shadow-xs pt-safe transition-all">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           {/* Zone 1: Brand & Ideator */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 min-w-0 shrink">
             <div
               style={{ backgroundColor: currentAccentHex }}
-              className="w-9 h-9 rounded-2xl flex items-center justify-center text-white shadow-xs"
+              className="w-9 h-9 rounded-2xl flex items-center justify-center text-white shadow-xs shrink-0"
             >
               <Mic className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
                 <span className="font-bold tracking-tight text-lg font-serif">Vornal</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-md">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-md hidden sm:inline-block">
                   Vault
                 </span>
               </div>
-              <p className="text-[11px] text-stone-400 flex items-center gap-1 -mt-0.5">
-                <span>Ideated by</span>
+              <p className="text-[10px] sm:text-[11px] text-stone-400 truncate -mt-0.5">
+                <span>Ideated by </span>
                 <strong className="text-stone-600 dark:text-stone-300 font-medium">Ravi Nair</strong>
               </p>
             </div>
           </div>
 
-          {/* Zone 2: Navigation Links */}
-          <nav className="hidden md:flex items-center gap-1 text-xs font-semibold text-stone-600 dark:text-stone-400">
+          {/* Zone 2 & 3: Compact Icon Navigation for Tablet & Desktop (No wide text labels to prevent trimming) */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {/* Vault Feed Shortcut (Icon with count badge) */}
             <a
               href="#vault-feed"
-              className="px-3 py-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-900 dark:hover:text-stone-100 transition-colors"
+              aria-label={`Journal Feed (${journals.length})`}
+              title={`Vault Library (${journals.length} reflections)`}
+              className="relative min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors"
             >
-              Journal Feed ({journals.length})
+              <BookOpen className="w-4 h-4" />
+              {journals.length > 0 && (
+                <span
+                  style={{ backgroundColor: currentAccentHex }}
+                  className="absolute -top-1 -right-1 text-[9px] font-bold text-white px-1.5 py-0.2 rounded-full min-w-[16px] text-center shadow-xs"
+                >
+                  {journals.length}
+                </span>
+              )}
             </a>
-            <button
-              onClick={() => setIsDriveFolderModalOpen(true)}
-              className="px-3 py-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-900 dark:hover:text-stone-100 transition-colors flex items-center gap-1.5"
-            >
-              <Cloud className="w-3.5 h-3.5 text-blue-500" />
-              <span>Drive Folders</span>
-            </button>
-            <button
-              onClick={() => setIsAboutModalOpen(true)}
-              className="px-3 py-1.5 rounded-xl hover:bg-stone-100 dark:hover:bg-stone-800 hover:text-stone-900 dark:hover:text-stone-100 transition-colors flex items-center gap-1.5"
-            >
-              <Info className="w-3.5 h-3.5" />
-              <span>About &amp; Privacy</span>
-            </button>
-          </nav>
 
-          {/* Zone 3: User Authentication & Theme Switcher */}
-          <div className="flex items-center gap-2.5">
+            {/* Google Drive Status & Folder Icon */}
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              aria-label="Google Drive & Storage Settings"
+              title={
+                driveState.isAuthenticated
+                  ? `Connected to Drive (${driveState.driveFolderName})`
+                  : "Connect Google Drive & Storage"
+              }
+              className={`relative min-h-[40px] min-w-[40px] rounded-xl border transition-colors flex items-center justify-center ${
+                driveState.isAuthenticated
+                  ? "border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"
+                  : "border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300"
+              }`}
+            >
+              <Cloud className="w-4 h-4" />
+              {driveState.isAuthenticated && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-stone-900" />
+              )}
+            </button>
+
+            {/* Engine indicator icon (Native vs Gemini) */}
+            <button
+              onClick={() => handleToggleEngine(transcriptionEngine === "native" ? "gemini" : "native")}
+              aria-label="Toggle Speech Engine"
+              title={
+                transcriptionEngine === "native"
+                  ? "Speech Engine: Native Browser (100% offline, zero API keys). Click to switch to Gemini AI."
+                  : "Speech Engine: Gemini AI. Click to switch to Native Speech."
+              }
+              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors"
+            >
+              {transcriptionEngine === "native" ? (
+                <Zap className="w-4 h-4 text-emerald-500" />
+              ) : (
+                <Sparkles className="w-4 h-4 text-indigo-500" />
+              )}
+            </button>
+
             {/* Theme & Palette trigger */}
             <button
               onClick={() => setIsThemeModalOpen(true)}
               aria-label="Theme & Colors"
               title="Change theme mode & primary color"
-              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors"
+              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors"
             >
               <Palette className="w-4 h-4" style={{ color: currentAccentHex }} />
+            </button>
+
+            {/* About & Privacy Info Icon */}
+            <button
+              onClick={() => setIsAboutModalOpen(true)}
+              aria-label="About & Privacy Policy"
+              title="About Vornal, Ideator Ravi Nair & Privacy Policy"
+              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors"
+            >
+              <Info className="w-4 h-4" />
+            </button>
+
+            {/* Sidebar Drawer Toggle Button */}
+            <button
+              onClick={() => setIsSidebarOpen(true)}
+              aria-label="Open Storage & Settings Sidebar"
+              title="Open Storage & Sync Sidebar"
+              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 bg-stone-100/80 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 flex items-center justify-center transition-colors"
+            >
+              <Menu className="w-4 h-4" />
             </button>
 
             {/* Google Login for anyone accessing the app */}
             {!driveState.isAuthenticated ? (
               <button
                 onClick={handleSignInDrive}
-                className="min-h-[40px] px-3.5 py-1.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold shadow-xs flex items-center gap-2 transition-all"
+                title="Sign in with Google"
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all"
               >
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                   <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                 </svg>
-                <span>Login</span>
+                <span className="hidden sm:inline">Login</span>
               </button>
             ) : (
-              <div className="flex items-center gap-1.5 bg-stone-100 dark:bg-stone-800/80 p-1 pl-2 rounded-2xl border border-stone-200/80 dark:border-stone-700/80">
+              <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800/80 p-1 pl-1.5 rounded-2xl border border-stone-200/80 dark:border-stone-700/80">
                 {driveState.userPhoto ? (
                   <img
                     src={driveState.userPhoto}
@@ -946,9 +1056,6 @@ export default function App() {
                     {(driveState.userName || driveState.userEmail || "U")[0].toUpperCase()}
                   </div>
                 )}
-                <span className="text-xs font-semibold text-stone-800 dark:text-stone-200 hidden sm:inline max-w-[100px] truncate">
-                  {driveState.userName?.split(" ")[0] || "User"}
-                </span>
                 <button
                   onClick={handleSignOutDrive}
                   title="Sign out of Google"
@@ -965,69 +1072,8 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-6xl mx-auto px-4 sm:px-6 py-6 sm:py-8 w-full space-y-8">
-        {/* Native Speech vs Gemini Clarification Callout */}
-        <div className="bg-white dark:bg-stone-900 border border-stone-200/90 dark:border-stone-800 rounded-3xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-              <Zap className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-stone-900 dark:text-stone-100 flex items-center gap-2">
-                <span>Native Speech &amp; No-API-Key Operation</span>
-                <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 px-2 py-0.5 rounded-full">
-                  Fully Supported
-                </span>
-              </h2>
-              <p className="text-xs text-stone-500 dark:text-stone-400 mt-0.5 leading-relaxed">
-                Vornal can run 100% natively without Gemini or external API keys using your browser's Web Speech API. Everything processes on your device!
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={() => handleToggleEngine(transcriptionEngine === "native" ? "gemini" : "native")}
-              className={`min-h-[36px] px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all ${
-                transcriptionEngine === "native"
-                  ? "bg-emerald-600 text-white shadow-xs"
-                  : "bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300"
-              }`}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>{transcriptionEngine === "native" ? "Using Native Engine" : "Switch to Native Speech"}</span>
-            </button>
-            <button
-              onClick={() => setIsAboutModalOpen(true)}
-              className="text-stone-400 hover:text-stone-600 dark:hover:text-stone-200 p-2"
-              title="Read Privacy Policy & Who this app is for"
-            >
-              <Info className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Google Drive Cloud Vault Sync Banner */}
-        <GoogleDriveSyncBanner
-          driveState={driveState}
-          autoSyncDrive={autoSyncDrive}
-          onToggleAutoSync={handleToggleAutoSyncDrive}
-          onSignIn={handleSignInDrive}
-          onSignOut={handleSignOutDrive}
-          onSyncAll={handleSyncAllToDrive}
-          onOpenFolderManager={() => setIsDriveFolderModalOpen(true)}
-          totalRecordingsCount={journals.length}
-          unsyncedCount={unsyncedDriveCount}
-        />
-
-        {/* Phone Folder Auto-Save Selector */}
-        <FolderSelector
-          folderConfig={folderConfig}
-          onUpdateConfig={handleUpdateFolderConfig}
-          onShowMessage={showToast}
-        />
-
         {/* Voice Journal Recording Console with thumb ergonomics */}
-        <section aria-label="Recording Console">
+        <section id="recording-console-section" aria-label="Recording Console">
           <RecordingConsole
             isRecording={isRecording}
             isPaused={isPaused}
@@ -1130,6 +1176,7 @@ export default function App() {
                   onSelect={(e) => setSelectedEntry(e)}
                   onDelete={handleDeleteJournal}
                   onSyncToDrive={handleSyncSingleToDrive}
+                  onEnhanceWithGemini={handleEnhanceWithGemini}
                   onTagClick={(tag) => setSelectedTagFilter(tag)}
                   onShowMessage={showToast}
                 />
@@ -1175,10 +1222,47 @@ export default function App() {
           onClose={() => setSelectedEntry(null)}
           onUpdateEntry={handleUpdateEntry}
           onRetryTranscription={handleRetryTranscription}
+          onEnhanceWithGemini={handleEnhanceWithGemini}
           onUploadToDrive={handleSyncSingleToDrive}
           onShowMessage={showToast}
         />
       )}
+
+      {/* Slide-out Sidebar Drawer for Google Drive Sync, Folder Selector, Speech Engine & Preferences */}
+      <SidebarDrawer
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        driveState={driveState}
+        autoSyncDrive={autoSyncDrive}
+        onToggleAutoSync={handleToggleAutoSyncDrive}
+        onSignInDrive={handleSignInDrive}
+        onSignOutDrive={handleSignOutDrive}
+        onSyncAllToDrive={handleSyncAllToDrive}
+        onOpenFolderManager={() => setIsDriveFolderModalOpen(true)}
+        totalJournalsCount={journals.length}
+        unsyncedDriveCount={unsyncedDriveCount}
+        folderConfig={folderConfig}
+        onUpdateFolderConfig={handleUpdateFolderConfig}
+        transcriptionEngine={transcriptionEngine}
+        onToggleEngine={handleToggleEngine}
+        onOpenThemeModal={() => setIsThemeModalOpen(true)}
+        onOpenAboutModal={() => setIsAboutModalOpen(true)}
+        onShowMessage={showToast}
+        accentColorHex={currentAccentHex}
+      />
+
+      {/* Floating Record Button that stays floating at all times */}
+      <FloatingRecordButton
+        isRecording={isRecording}
+        isPaused={isPaused}
+        recordingDuration={recordingDuration}
+        onStartRecording={handleStartRecording}
+        onPauseRecording={pauseRecording}
+        onResumeRecording={resumeRecording}
+        onStopRecording={handleFinishRecording}
+        accentColorHex={currentAccentHex}
+        isProcessing={isProcessing}
+      />
 
       {/* Google Drive Folder Manager & Move Files Modal */}
       <DriveFolderManagerModal

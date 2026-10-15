@@ -12,6 +12,8 @@ import {
   Loader2,
   AlertCircle,
   ExternalLink,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 import { JournalEntry } from "../types";
 import { AudioPlayer } from "./AudioPlayer";
@@ -24,6 +26,7 @@ interface JournalCardProps {
   onSelect: (entry: JournalEntry) => void;
   onDelete: (id: string) => void;
   onSyncToDrive?: (entry: JournalEntry) => void;
+  onEnhanceWithGemini?: (entry: JournalEntry) => void;
   onTagClick?: (tag: string) => void;
   onShowMessage: (msg: string, type?: "success" | "info" | "error") => void;
 }
@@ -34,6 +37,7 @@ export const JournalCard: React.FC<JournalCardProps> = ({
   onSelect,
   onDelete,
   onSyncToDrive,
+  onEnhanceWithGemini,
   onTagClick,
   onShowMessage,
 }) => {
@@ -133,6 +137,17 @@ export const JournalCard: React.FC<JournalCardProps> = ({
                 Drive
               </span>
             )}
+
+            {/* Speech Engine Badge */}
+            {entry.engineUsed === "native" && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-300 border border-stone-200/50 dark:border-stone-700/50"
+                title="Transcribed locally with Native Speech"
+              >
+                <Zap className="w-2.5 h-2.5 text-emerald-500" />
+                <span>Native</span>
+              </span>
+            )}
           </div>
         </div>
 
@@ -199,6 +214,22 @@ export const JournalCard: React.FC<JournalCardProps> = ({
                 <Cloud className="w-3.5 h-3.5" />
               )}
               <span>Drive</span>
+            </button>
+          )}
+
+          {/* Quick AI Enhance button if native speech or needs improvement */}
+          {onEnhanceWithGemini && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onEnhanceWithGemini(entry);
+              }}
+              aria-label="Enhance with Gemini AI"
+              title="Enhance transcript & generate insights with Gemini AI"
+              className="min-h-[40px] px-2 flex items-center gap-1 rounded-lg text-indigo-600 hover:text-indigo-800 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors text-[11px] font-medium"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">AI</span>
             </button>
           )}
 

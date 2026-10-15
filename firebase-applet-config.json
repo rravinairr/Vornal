@@ -3,6 +3,7 @@
   "appId": "1:817456132930:web:8368e4c82ceaa65f384edb",
   "apiKey": "AIzaSyCX0xbBFOLN1mC2Xej93L2-AehCtymu0rE",
   "authDomain": "gen-lang-client-0574672129.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-vocalisvoicejour-0aa6d45e-3d39-4b8d-83b8-b8b54ed2dc82",
   "storageBucket": "gen-lang-client-0574672129.firebasestorage.app",
   "messagingSenderId": "817456132930",
   "measurementId": "",

@@ -33,6 +33,7 @@ interface JournalDetailModalProps {
   onClose: () => void;
   onUpdateEntry: (updated: JournalEntry) => void;
   onRetryTranscription?: (entry: JournalEntry) => void;
+  onEnhanceWithGemini?: (entry: JournalEntry) => void;
   onUploadToDrive?: (entry: JournalEntry) => Promise<void>;
   onShowMessage: (msg: string, type?: "success" | "info" | "error") => void;
 }
@@ -47,6 +48,7 @@ export const JournalDetailModal: React.FC<JournalDetailModalProps> = ({
   onClose,
   onUpdateEntry,
   onRetryTranscription,
+  onEnhanceWithGemini,
   onUploadToDrive,
   onShowMessage,
 }) => {
@@ -414,6 +416,37 @@ export const JournalDetailModal: React.FC<JournalDetailModalProps> = ({
               </button>
             </div>
           )}
+
+          {/* Engine & Transcription Upgrade Option (Switch to API if unhappy with native speech) */}
+          <div className="p-4 rounded-2xl bg-stone-100/80 dark:bg-stone-800/60 border border-stone-200 dark:border-stone-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  {entry.engineUsed === "native" ? "Transcribed with Native Speech (Offline)" : "Transcribed with Gemini AI"}
+                </span>
+                <span className="text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full">
+                  {entry.engineUsed === "native" ? "Native (Local)" : "Gemini AI"}
+                </span>
+              </div>
+              <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-1">
+                {entry.engineUsed === "native"
+                  ? "Unhappy with the native browser transcription? You can re-analyze this audio recording with Gemini AI for deeper summaries, tone analysis, and formatted action items."
+                  : "Processed with Gemini AI. You can re-run analysis if desired."}
+              </p>
+            </div>
+            {(onEnhanceWithGemini || onRetryTranscription) && (
+              <button
+                onClick={() => (onEnhanceWithGemini ? onEnhanceWithGemini(entry) : onRetryTranscription?.(entry))}
+                disabled={isProcessing}
+                className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white text-xs font-semibold shadow-xs disabled:opacity-50 transition-all flex items-center gap-2 shrink-0 self-start sm:self-auto"
+                title="Re-transcribe and format with Gemini AI"
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${isProcessing ? "animate-spin" : ""}`} />
+                <span>{isProcessing ? "Processing AI..." : "Enhance with Gemini AI"}</span>
+              </button>
+            )}
+          </div>
 
           {/* Formatted View */}
           {activeTab === "formatted" && (

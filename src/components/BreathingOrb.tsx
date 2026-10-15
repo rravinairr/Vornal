@@ -1,7 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Wind, Play, Pause, Minimize2, Maximize2, Move, Sparkles, Volume2, VolumeX, CheckCircle } from "lucide-react";
+import {
+  Wind,
+  Play,
+  Pause,
+  X,
+  Volume2,
+  VolumeX,
+  Sparkles,
+  Maximize2,
+  CheckCircle2,
+  RotateCcw,
+} from "lucide-react";
 
-export type OrbPlacement = "floating" | "topbar" | "zen";
+export type BreathingCadence = "calm-4-4-6-2" | "box-4-4-4-4" | "relax-4-5-6-3";
 
 interface BreathingOrbProps {
   accentColorHex?: string;
@@ -12,73 +23,131 @@ export const BreathingOrb: React.FC<BreathingOrbProps> = ({
   accentColorHex = "#6366F1",
   isRecording = false,
 }) => {
+  // Whether the full Zen Mode (everything fades out) is open
+  const [isZenModeOpen, setIsZenModeOpen] = useState(false);
   const [isActive, setIsActive] = useState(true);
-  const [placement, setPlacement] = useState<OrbPlacement>("floating");
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [cadence, setCadence] = useState<BreathingCadence>("calm-4-4-6-2");
   const [soundEnabled, setSoundEnabled] = useState(false);
-  const [cycleCount, setCycleCount] = useState(0);
 
-  // Time in current 15s cycle: 0 -> 15000ms
-  // 0 to 4000: Inhale (4s)
-  // 4000 to 9000: Hold (5s)
-  // 9000 to 15000: Exhale (6s)
+  // Breath counts - only increment and display during session
+  const [breathCount, setBreathCount] = useState(1);
+  const [completedBreaths, setCompletedBreaths] = useState(0);
+
+  // Cadence timings in milliseconds
+  // Calm: Inhale 4s (4000ms), Hold 4s (4000ms), Exhale 6s (6000ms), Hold 2s (2000ms) = Total 16000ms
+  // Box: Inhale 4s (4000ms), Hold 4s (4000ms), Exhale 4s (4000ms), Hold 4s (4000ms) = Total 16000ms
+  // Relax: Inhale 4s (4000ms), Hold 5s (5000ms), Exhale 6s (6000ms), Hold 3s (3000ms) = Total 18000ms
+  const timings = {
+    "calm-4-4-6-2": {
+      inhale: 4000,
+      holdIn: 4000,
+      exhale: 6000,
+      holdOut: 2000,
+      total: 16000,
+      name: "Calm Resonance (4-4-6-2)",
+      description: "Inhale 4s · Hold 4s · Exhale 6s · Hold 2s",
+    },
+    "box-4-4-4-4": {
+      inhale: 4000,
+      holdIn: 4000,
+      exhale: 4000,
+      holdOut: 4000,
+      total: 16000,
+      name: "Box Breathing (4-4-4-4)",
+      description: "Inhale 4s · Hold 4s · Exhale 4s · Hold 4s",
+    },
+    "relax-4-5-6-3": {
+      inhale: 4000,
+      holdIn: 5000,
+      exhale: 6000,
+      holdOut: 3000,
+      total: 18000,
+      name: "Deep Rest (4-5-6-3)",
+      description: "Inhale 4s · Hold 5s · Exhale 6s · Hold 3s",
+    },
+  }[cadence];
+
   const [cycleTime, setCycleTime] = useState(0);
-  const prevPhaseRef = useRef<"inhale" | "hold" | "exhale">("inhale");
+  const prevPhaseRef = useRef<"inhale" | "holdIn" | "exhale" | "holdOut">("inhale");
 
+  // Timer loop
   useEffect(() => {
     if (!isActive) return;
 
-    const interval = 50; // 20fps for smooth clock
+    const interval = 40; // 25fps clock
     const timer = setInterval(() => {
       setCycleTime((prev) => {
-        const next = (prev + interval) % 15000;
-        // If wrapped around, increment cycle count
+        const next = (prev + interval) % timings.total;
         if (next < prev) {
-          setCycleCount((c) => c + 1);
+          // Wrapped around: one full breath completed
+          setBreathCount((b) => b + 1);
+          setCompletedBreaths((c) => c + 1);
         }
         return next;
       });
     }, interval);
 
     return () => clearInterval(timer);
-  }, [isActive]);
+  }, [isActive, timings.total]);
 
-  // Determine current phase and progress
-  let phase: "inhale" | "hold" | "exhale" = "inhale";
-  let phaseProgress = 0; // 0 to 1
+  // Handle ESC key to exit Zen mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isZenModeOpen) {
+        setIsZenModeOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isZenModeOpen]);
+
+  // Determine current phase
+  type Phase = "inhale" | "holdIn" | "exhale" | "holdOut";
+  let currentPhase: Phase = "inhale";
+  let phaseProgress = 0;
   let secondsRemaining = 0;
-  let phaseLabel = "Breathe In";
-  let phaseSub = "Expand chest slowly";
+  let phaseTitle = "Inhale";
+  let phaseInstruction = "Breathe in slowly through your nose";
 
-  if (cycleTime < 4000) {
-    phase = "inhale";
-    phaseProgress = cycleTime / 4000;
-    secondsRemaining = Math.ceil((4000 - cycleTime) / 1000);
-    phaseLabel = "Inhale";
-    phaseSub = "4 seconds";
-  } else if (cycleTime < 9000) {
-    phase = "hold";
-    phaseProgress = (cycleTime - 4000) / 5000;
-    secondsRemaining = Math.ceil((9000 - cycleTime) / 1000);
-    phaseLabel = "Hold";
-    phaseSub = "5 seconds";
+  const { inhale, holdIn, exhale, holdOut } = timings;
+  const tHoldInEnd = inhale + holdIn;
+  const tExhaleEnd = tHoldInEnd + exhale;
+
+  if (cycleTime < inhale) {
+    currentPhase = "inhale";
+    phaseProgress = cycleTime / inhale;
+    secondsRemaining = Math.ceil((inhale - cycleTime) / 1000);
+    phaseTitle = "Inhale";
+    phaseInstruction = "Breathe in slowly through your nose";
+  } else if (cycleTime < tHoldInEnd) {
+    currentPhase = "holdIn";
+    phaseProgress = (cycleTime - inhale) / holdIn;
+    secondsRemaining = Math.ceil((tHoldInEnd - cycleTime) / 1000);
+    phaseTitle = "Hold";
+    phaseInstruction = "Gently pause with full, quiet lungs";
+  } else if (cycleTime < tExhaleEnd) {
+    currentPhase = "exhale";
+    phaseProgress = (cycleTime - tHoldInEnd) / exhale;
+    secondsRemaining = Math.ceil((tExhaleEnd - cycleTime) / 1000);
+    phaseTitle = "Exhale";
+    phaseInstruction = "Slowly let everything go, softening your shoulders";
   } else {
-    phase = "exhale";
-    phaseProgress = (cycleTime - 9000) / 6000;
-    secondsRemaining = Math.ceil((15000 - cycleTime) / 1000);
-    phaseLabel = "Exhale";
-    phaseSub = "6 seconds";
+    currentPhase = "holdOut";
+    phaseProgress = (cycleTime - tExhaleEnd) / holdOut;
+    secondsRemaining = Math.ceil((timings.total - cycleTime) / 1000);
+    phaseTitle = "Hold (Empty)";
+    phaseInstruction = "Rest in gentle, weightless stillness";
   }
 
   // Soft chime on phase change if sound enabled
   useEffect(() => {
-    if (soundEnabled && prevPhaseRef.current !== phase) {
-      playSoftChime(phase);
+    if (soundEnabled && isZenModeOpen && prevPhaseRef.current !== currentPhase) {
+      playSoftChime(currentPhase);
     }
-    prevPhaseRef.current = phase;
-  }, [phase, soundEnabled]);
+    prevPhaseRef.current = currentPhase;
+  }, [currentPhase, soundEnabled, isZenModeOpen]);
 
-  const playSoftChime = (p: "inhale" | "hold" | "exhale") => {
+  const playSoftChime = (p: Phase) => {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
@@ -86,215 +155,366 @@ export const BreathingOrb: React.FC<BreathingOrbProps> = ({
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
-      const freq = p === "inhale" ? 432 : p === "hold" ? 528 : 396;
-      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      const freqMap: Record<Phase, number> = {
+        inhale: 432,
+        holdIn: 528,
+        exhale: 396,
+        holdOut: 288,
+      };
+
+      osc.frequency.setValueAtTime(freqMap[p], ctx.currentTime);
       osc.type = "sine";
 
-      gain.gain.setValueAtTime(0.001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.05);
-      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.6);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.04, ctx.currentTime + 0.08);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.7);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start();
-      osc.stop(ctx.currentTime + 0.7);
+      osc.stop(ctx.currentTime + 0.8);
     } catch {}
   };
 
-  // Scale of the orb:
-  // Inhale: 1.0 -> 1.45
-  // Hold: 1.45 with subtle organic breathing oscillation
-  // Exhale: 1.45 -> 1.0
+  // Scale computation:
+  // Inhale: 1.0 -> 1.5
+  // HoldIn: 1.5 with subtle organic breathing wave
+  // Exhale: 1.5 -> 0.95
+  // HoldOut: 0.95 still resting pause
   let scale = 1.0;
-  let opacity = 0.85;
+  let glowOpacity = 0.6;
 
-  if (phase === "inhale") {
-    // Smooth ease in out
+  if (currentPhase === "inhale") {
     const ease = (1 - Math.cos(phaseProgress * Math.PI)) / 2;
-    scale = 1.0 + ease * 0.45;
-    opacity = 0.75 + ease * 0.25;
-  } else if (phase === "hold") {
-    const pulse = Math.sin(phaseProgress * Math.PI * 2) * 0.04;
-    scale = 1.45 + pulse;
-    opacity = 1.0;
+    scale = 1.0 + ease * 0.5;
+    glowOpacity = 0.5 + ease * 0.45;
+  } else if (currentPhase === "holdIn") {
+    const pulse = Math.sin(phaseProgress * Math.PI * 2) * 0.03;
+    scale = 1.5 + pulse;
+    glowOpacity = 0.95;
+  } else if (currentPhase === "exhale") {
+    const ease = (1 - Math.cos(phaseProgress * Math.PI)) / 2;
+    scale = 1.5 - ease * 0.55;
+    glowOpacity = 0.95 - ease * 0.5;
   } else {
-    // Exhale
-    const ease = (1 - Math.cos(phaseProgress * Math.PI)) / 2;
-    scale = 1.45 - ease * 0.45;
-    opacity = 1.0 - ease * 0.25;
-  }
-
-  // Micro-orb view when minimized
-  if (isMinimized) {
-    return (
-      <div
-        className="fixed bottom-24 right-4 z-40 flex items-center gap-2 bg-white/90 dark:bg-stone-900/90 backdrop-blur-md px-3 py-2 rounded-full shadow-lg border border-stone-200 dark:border-stone-800 cursor-pointer select-none transition-all hover:scale-105"
-        onClick={() => setIsMinimized(false)}
-        title="4-5-6 Breathing Orb (Click to expand)"
-      >
-        <div className="relative w-6 h-6 flex items-center justify-center">
-          <div
-            style={{
-              transform: `scale(${scale * 0.7})`,
-              backgroundColor: accentColorHex,
-              boxShadow: `0 0 12px ${accentColorHex}80`,
-            }}
-            className="w-4 h-4 rounded-full transition-transform duration-100"
-          />
-        </div>
-        <span className="text-xs font-semibold text-stone-800 dark:text-stone-200 tabular-nums">
-          {phaseLabel} ({secondsRemaining}s)
-        </span>
-      </div>
-    );
+    // holdOut
+    scale = 0.95;
+    glowOpacity = 0.35;
   }
 
   return (
-    <aside
-      aria-label="4-5-6 Breathing Guide Orb"
-      className="fixed bottom-24 right-4 md:right-8 z-40 select-none transition-all"
-    >
-      <div className="bg-white/95 dark:bg-stone-900/95 backdrop-blur-xl border border-stone-200/90 dark:border-stone-800/90 rounded-3xl p-4 shadow-xl flex flex-col items-center gap-3 w-56">
-        {/* Top controls header */}
-        <div className="w-full flex items-center justify-between text-stone-500 dark:text-stone-400 text-[11px] font-medium border-b border-stone-100 dark:border-stone-800/80 pb-2">
-          <div className="flex items-center gap-1.5 text-stone-700 dark:text-stone-300">
-            <Wind className="w-3.5 h-3.5" style={{ color: accentColorHex }} />
-            <span className="font-semibold">4-5-6 Breath</span>
-          </div>
-
-          <div className="flex items-center gap-1">
-            {/* Sound chime toggle */}
-            <button
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              className="p-1 rounded-md hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-              title={soundEnabled ? "Mute chime" : "Enable gentle chime on phase change"}
-            >
-              {soundEnabled ? <Volume2 className="w-3 h-3 text-emerald-600" /> : <VolumeX className="w-3 h-3 text-stone-400" />}
-            </button>
-
-            {/* Play/Pause */}
-            <button
-              onClick={() => setIsActive(!isActive)}
-              className="p-1 rounded-md hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-              title={isActive ? "Pause breathing orb" : "Resume"}
-            >
-              {isActive ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-            </button>
-
-            {/* Minimize */}
-            <button
-              onClick={() => setIsMinimized(true)}
-              className="p-1 rounded-md hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
-              title="Minimize to micro-orb"
-            >
-              <Minimize2 className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-
-        {/* Breathing Orb Graphic */}
-        <div className="relative w-32 h-32 flex items-center justify-center my-1">
-          {/* Outer glow ring 1 */}
-          <div
-            style={{
-              transform: `scale(${scale * 1.25})`,
-              opacity: opacity * 0.25,
-              borderColor: accentColorHex,
-            }}
-            className="absolute inset-0 rounded-full border border-dashed transition-transform duration-150"
-          />
-
-          {/* Outer glow aura */}
-          <div
-            style={{
-              transform: `scale(${scale * 1.15})`,
-              opacity: opacity * 0.4,
-              background: `radial-gradient(circle, ${accentColorHex}40 0%, transparent 70%)`,
-            }}
-            className="absolute inset-2 rounded-full transition-transform duration-100 blur-sm"
-          />
-
-          {/* Central breathing orb */}
-          <div
-            style={{
-              transform: `scale(${scale})`,
-              opacity: opacity,
-              background: `radial-gradient(circle at 35% 35%, #ffffff 0%, ${accentColorHex} 55%, #1e1b4b 100%)`,
-              boxShadow: `0 0 24px ${accentColorHex}99, inset 0 0 12px rgba(255,255,255,0.6)`,
-            }}
-            className="w-16 h-16 rounded-full transition-transform duration-75 flex items-center justify-center cursor-default shadow-md"
-          >
-            {/* Center seconds countdown */}
-            <span className="text-white font-mono font-bold text-sm drop-shadow-md select-none tabular-nums">
-              {secondsRemaining}s
-            </span>
-          </div>
-
-          {/* Subtly orbiting particles */}
-          <div
-            style={{
-              transform: `rotate(${cycleTime * 0.04}deg)`,
-            }}
-            className="absolute w-24 h-24 rounded-full pointer-events-none opacity-40"
-          >
+    <>
+      {/* 
+        1. MINIMAL BACKGROUND AMBIENT ORB
+        "the animation thats going to be in the background on the app visually, minimal but there hiding but enough to draw attention"
+      */}
+      <aside
+        aria-label="Zen Breathing Animation Guide"
+        className="fixed bottom-6 left-6 z-30 select-none group pointer-events-auto"
+      >
+        <button
+          onClick={() => {
+            setIsZenModeOpen(true);
+            setIsActive(true);
+          }}
+          className="relative flex items-center gap-2.5 px-3 py-2 rounded-full bg-white/75 dark:bg-stone-900/75 backdrop-blur-md border border-stone-200/70 dark:border-stone-800/80 shadow-md hover:shadow-lg hover:scale-105 active:scale-95 transition-all text-left cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-indigo-500/40"
+          title="Click to enter serene Zen Breathing mode"
+        >
+          {/* Subtle pulsating breathing orb in the background */}
+          <div className="relative w-8 h-8 flex items-center justify-center shrink-0">
+            {/* Ambient outer halo */}
             <div
-              style={{ backgroundColor: accentColorHex }}
-              className="w-1.5 h-1.5 rounded-full absolute top-0 left-1/2 -translate-x-1/2"
+              style={{
+                transform: `scale(${scale * 1.35})`,
+                opacity: glowOpacity * 0.4,
+                backgroundColor: accentColorHex,
+              }}
+              className="absolute inset-0 rounded-full blur-xs transition-transform duration-100"
             />
-          </div>
-        </div>
-
-        {/* Phase details */}
-        <div className="w-full text-center">
-          <div className="flex items-center justify-center gap-1.5">
-            <span
-              style={{ color: accentColorHex }}
-              className="text-xs font-bold uppercase tracking-wider"
+            {/* Concentric subtle ring */}
+            <div
+              style={{
+                transform: `scale(${scale * 1.15})`,
+                borderColor: accentColorHex,
+                opacity: glowOpacity * 0.6,
+              }}
+              className="absolute inset-0 rounded-full border border-dashed transition-transform duration-100"
+            />
+            {/* Central orb */}
+            <div
+              style={{
+                transform: `scale(${scale * 0.75})`,
+                backgroundColor: accentColorHex,
+                boxShadow: `0 0 14px ${accentColorHex}aa`,
+              }}
+              className="w-5 h-5 rounded-full transition-transform duration-100 flex items-center justify-center"
             >
-              {phaseLabel}
-            </span>
-            <span className="text-xs text-stone-400 font-mono">({phaseSub})</span>
-          </div>
-
-          {/* Progress bar for the 15s cycle */}
-          <div className="w-full bg-stone-100 dark:bg-stone-800 h-1.5 rounded-full mt-2 overflow-hidden flex">
-            {/* 4s Inhale section (4/15 = 26.6%) */}
-            <div
-              className={`h-full transition-all ${
-                phase === "inhale" ? "bg-emerald-500" : "bg-stone-300 dark:bg-stone-700"
-              }`}
-              style={{ width: "26.7%" }}
-            />
-            {/* 5s Hold section (5/15 = 33.3%) */}
-            <div
-              className={`h-full transition-all ${
-                phase === "hold" ? "bg-amber-500" : "bg-stone-300 dark:bg-stone-700"
-              }`}
-              style={{ width: "33.3%" }}
-            />
-            {/* 6s Exhale section (6/15 = 40%) */}
-            <div
-              className={`h-full transition-all ${
-                phase === "exhale" ? "bg-indigo-500" : "bg-stone-300 dark:bg-stone-700"
-              }`}
-              style={{ width: "40%" }}
-            />
-          </div>
-
-          <div className="flex items-center justify-between text-[10px] text-stone-400 mt-1.5 px-0.5">
-            <span>Inhale 4s</span>
-            <span>Hold 5s</span>
-            <span>Exhale 6s</span>
-          </div>
-
-          {cycleCount > 0 && (
-            <div className="text-[10px] text-stone-500 dark:text-stone-400 mt-1 flex items-center justify-center gap-1">
-              <CheckCircle className="w-2.5 h-2.5 text-emerald-500" />
-              <span>{cycleCount} mindful breath{cycleCount === 1 ? "" : "s"} completed</span>
+              <Wind className="w-2.5 h-2.5 text-white/90" />
             </div>
-          )}
+          </div>
+
+          <div className="flex flex-col pr-1">
+            <span className="text-[11px] font-bold text-stone-800 dark:text-stone-200 flex items-center gap-1 leading-tight">
+              <span>{phaseTitle}</span>
+              <span className="text-stone-400 font-mono text-[10px]">({secondsRemaining}s)</span>
+            </span>
+            <span className="text-[9px] text-stone-400 group-hover:text-stone-600 dark:group-hover:text-stone-300 font-medium leading-tight">
+              Tap for Zen Breath
+            </span>
+          </div>
+        </button>
+      </aside>
+
+      {/* 
+        2. IMMERSIVE ZEN BREATHING MODE (CLICKED STATE)
+        "also let there be a breath count only when the user clicks on the animation where everything fades and only the animation is on"
+      */}
+      {isZenModeOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Zen Breathing Space"
+          className="fixed inset-0 z-50 bg-stone-950/94 backdrop-blur-2xl text-stone-100 flex flex-col justify-between items-center p-6 md:p-12 animate-in fade-in duration-500 select-none overflow-hidden"
+          onClick={(e) => {
+            // Clicking background also gives an easy way to exit if clicking outer area
+            if (e.target === e.currentTarget) {
+              setIsZenModeOpen(false);
+            }
+          }}
+        >
+          {/* Top Bar: Breath Counter & Exit Controls */}
+          <header className="w-full max-w-xl flex items-center justify-between z-10">
+            {/* Breath Count Display (Only when user clicks into Zen Mode) */}
+            <div className="flex items-center gap-2.5">
+              <div
+                style={{ backgroundColor: accentColorHex }}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-white shadow-md shadow-indigo-500/30"
+              >
+                <Wind className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs uppercase tracking-widest text-stone-400 font-mono font-medium">
+                    Breath Count
+                  </span>
+                  <span
+                    style={{ backgroundColor: `${accentColorHex}33`, color: accentColorHex }}
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase"
+                  >
+                    Active
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold tracking-tight text-white font-serif">
+                  Breath #{breathCount}
+                  {completedBreaths > 0 && (
+                    <span className="text-xs font-normal text-stone-400 ml-2 font-sans">
+                      ({completedBreaths} completed)
+                    </span>
+                  )}
+                </h3>
+              </div>
+            </div>
+
+            {/* Top Right Actions */}
+            <div className="flex items-center gap-2">
+              {/* Sound chime toggle */}
+              <button
+                onClick={() => setSoundEnabled(!soundEnabled)}
+                className={`p-2.5 rounded-2xl border transition-colors ${
+                  soundEnabled
+                    ? "bg-white/10 border-white/20 text-white"
+                    : "bg-white/5 border-white/10 text-stone-400 hover:text-white"
+                }`}
+                title={soundEnabled ? "Mute phase transition chimes" : "Enable gentle Tibetan chimes"}
+              >
+                {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4" />}
+              </button>
+
+              {/* Pause / Resume */}
+              <button
+                onClick={() => setIsActive(!isActive)}
+                className="p-2.5 rounded-2xl bg-white/5 border border-white/10 text-stone-400 hover:text-white transition-colors"
+                title={isActive ? "Pause breathing timer" : "Resume breathing timer"}
+              >
+                {isActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              </button>
+
+              {/* Close Zen Mode */}
+              <button
+                onClick={() => setIsZenModeOpen(false)}
+                className="p-2.5 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/20 text-white transition-all hover:scale-105"
+                title="Return to Journal (Esc)"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+          </header>
+
+          {/* Central Zen Breathing Orb with 4-phase hold cycle */}
+          <main className="flex-1 flex flex-col items-center justify-center my-auto relative w-full max-w-lg">
+            {/* Massive Ambient Background Aura */}
+            <div
+              style={{
+                transform: `scale(${scale * 1.6})`,
+                opacity: glowOpacity * 0.25,
+                background: `radial-gradient(circle, ${accentColorHex} 0%, transparent 65%)`,
+              }}
+              className="absolute w-80 h-80 rounded-full blur-2xl pointer-events-none transition-transform duration-200"
+            />
+
+            {/* Outer harmonic dashed ring */}
+            <div
+              style={{
+                transform: `scale(${scale * 1.35})`,
+                opacity: glowOpacity * 0.45,
+                borderColor: accentColorHex,
+              }}
+              className="absolute w-64 h-64 rounded-full border-2 border-dashed pointer-events-none transition-transform duration-150"
+            />
+
+            {/* Middle glowing aura ring */}
+            <div
+              style={{
+                transform: `scale(${scale * 1.18})`,
+                opacity: glowOpacity * 0.6,
+                borderColor: `${accentColorHex}80`,
+              }}
+              className="absolute w-56 h-56 rounded-full border border-white/20 transition-transform duration-100"
+            />
+
+            {/* Main Central Orb */}
+            <div
+              style={{
+                transform: `scale(${scale})`,
+                background: `radial-gradient(circle at 35% 30%, #ffffff 0%, ${accentColorHex} 50%, #0f172a 100%)`,
+                boxShadow: `0 0 60px ${accentColorHex}99, inset 0 0 24px rgba(255,255,255,0.7)`,
+              }}
+              className="w-44 h-44 rounded-full flex flex-col items-center justify-center shadow-2xl transition-transform duration-100 relative z-10 cursor-pointer"
+              onClick={() => setIsActive(!isActive)}
+              title={isActive ? "Click to pause" : "Click to resume"}
+            >
+              {/* Inner Countdown */}
+              <span className="text-4xl font-mono font-extrabold text-white drop-shadow-lg tabular-nums">
+                {secondsRemaining}s
+              </span>
+              <span className="text-xs uppercase tracking-widest text-white/90 font-bold mt-0.5">
+                {phaseTitle}
+              </span>
+            </div>
+
+            {/* Instruction and Guidance Text */}
+            <div className="mt-12 text-center max-w-sm space-y-2 z-10">
+              <h2
+                style={{ color: accentColorHex }}
+                className="text-2xl font-bold tracking-tight font-serif capitalize"
+              >
+                {phaseTitle}
+              </h2>
+              <p className="text-sm text-stone-300 leading-relaxed font-light">
+                {phaseInstruction}
+              </p>
+            </div>
+
+            {/* 4-Phase Harmonic Progress Track */}
+            <div className="w-full max-w-md mt-8 px-4 z-10">
+              <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden flex p-0.5 gap-1">
+                {/* Phase 1: Inhale */}
+                <div
+                  className={`h-full rounded-full transition-all duration-150 ${
+                    currentPhase === "inhale" ? "bg-emerald-400 shadow-xs shadow-emerald-400" : "bg-white/20"
+                  }`}
+                  style={{ width: `${(timings.inhale / timings.total) * 100}%` }}
+                />
+                {/* Phase 2: Hold Full */}
+                <div
+                  className={`h-full rounded-full transition-all duration-150 ${
+                    currentPhase === "holdIn" ? "bg-amber-400 shadow-xs shadow-amber-400" : "bg-white/20"
+                  }`}
+                  style={{ width: `${(timings.holdIn / timings.total) * 100}%` }}
+                />
+                {/* Phase 3: Exhale */}
+                <div
+                  className={`h-full rounded-full transition-all duration-150 ${
+                    currentPhase === "exhale" ? "bg-indigo-400 shadow-xs shadow-indigo-400" : "bg-white/20"
+                  }`}
+                  style={{ width: `${(timings.exhale / timings.total) * 100}%` }}
+                />
+                {/* Phase 4: Hold Empty */}
+                <div
+                  className={`h-full rounded-full transition-all duration-150 ${
+                    currentPhase === "holdOut" ? "bg-sky-400 shadow-xs shadow-sky-400" : "bg-white/20"
+                  }`}
+                  style={{ width: `${(timings.holdOut / timings.total) * 100}%` }}
+                />
+              </div>
+
+              <div className="flex items-center justify-between text-[11px] text-stone-400 mt-2 font-mono">
+                <span className={currentPhase === "inhale" ? "text-emerald-400 font-bold" : ""}>
+                  Inhale {timings.inhale / 1000}s
+                </span>
+                <span className={currentPhase === "holdIn" ? "text-amber-400 font-bold" : ""}>
+                  Hold {timings.holdIn / 1000}s
+                </span>
+                <span className={currentPhase === "exhale" ? "text-indigo-400 font-bold" : ""}>
+                  Exhale {timings.exhale / 1000}s
+                </span>
+                <span className={currentPhase === "holdOut" ? "text-sky-400 font-bold" : ""}>
+                  Hold (Empty) {timings.holdOut / 1000}s
+                </span>
+              </div>
+            </div>
+          </main>
+
+          {/* Bottom Controls: Cadence Selector & Return Button */}
+          <footer className="w-full max-w-xl flex flex-col sm:flex-row items-center justify-between gap-4 z-10 pt-4 border-t border-white/10">
+            {/* Cadence options */}
+            <div className="flex items-center gap-1.5 p-1 bg-white/5 rounded-2xl border border-white/10 text-xs">
+              <button
+                onClick={() => setCadence("calm-4-4-6-2")}
+                className={`px-3 py-1.5 rounded-xl font-medium transition-colors ${
+                  cadence === "calm-4-4-6-2"
+                    ? "bg-white text-stone-900 font-bold shadow-xs"
+                    : "text-stone-400 hover:text-white"
+                }`}
+                title="Optimal vagal calm: Inhale 4s, Hold 4s, Exhale 6s, Hold 2s"
+              >
+                Calm 4-4-6-2
+              </button>
+              <button
+                onClick={() => setCadence("box-4-4-4-4")}
+                className={`px-3 py-1.5 rounded-xl font-medium transition-colors ${
+                  cadence === "box-4-4-4-4"
+                    ? "bg-white text-stone-900 font-bold shadow-xs"
+                    : "text-stone-400 hover:text-white"
+                }`}
+                title="Sama Vritti Box Breathing: 4s Inhale, 4s Hold, 4s Exhale, 4s Hold"
+              >
+                Box 4-4-4-4
+              </button>
+              <button
+                onClick={() => setCadence("relax-4-5-6-3")}
+                className={`px-3 py-1.5 rounded-xl font-medium transition-colors ${
+                  cadence === "relax-4-5-6-3"
+                    ? "bg-white text-stone-900 font-bold shadow-xs"
+                    : "text-stone-400 hover:text-white"
+                }`}
+                title="Deep parasympathetic release: 4s Inhale, 5s Hold, 6s Exhale, 3s Hold"
+              >
+                Deep 4-5-6-3
+              </button>
+            </div>
+
+            {/* Return to Journal Button */}
+            <button
+              onClick={() => setIsZenModeOpen(false)}
+              className="px-5 py-2 rounded-2xl bg-white text-stone-900 font-bold text-xs hover:bg-stone-200 active:scale-95 transition-all shadow-lg flex items-center gap-2"
+            >
+              <span>Return to Journal</span>
+              <span className="text-[10px] text-stone-500 font-mono">(Esc)</span>
+            </button>
+          </footer>
         </div>
-      </div>
-    </aside>
+      )}
+    </>
   );
 };
