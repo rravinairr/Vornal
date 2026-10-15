@@ -6,6 +6,7 @@ import {defineConfig} from 'vite';
 export default defineConfig(() => {
   return {
     plugins: [react(), tailwindcss()],
+    base: '/Vornal/',  // <--- ADD THIS LINE WITH YOUR REPO NAME
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
