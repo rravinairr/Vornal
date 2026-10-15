@@ -668,6 +668,9 @@ export default function App() {
         });
 
         if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error("AI server not detected (running on static host like GitHub Pages). Native Speech engine is active for 100% client-side transcription!");
+          }
           const errJson = await response.json().catch(() => ({}));
           throw new Error(errJson.error || `Server responded with ${response.status}`);
         }
@@ -777,6 +780,9 @@ export default function App() {
       });
 
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("AI backend not found on static host. Use Native Speech transcription in settings!");
+        }
         const errJson = await response.json().catch(() => ({}));
         throw new Error(errJson.error || "Retry failed");
       }
@@ -827,6 +833,9 @@ export default function App() {
       });
 
       if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error("AI server not detected on static host. Native Speech engine operates 100% offline without backend!");
+        }
         const errJson = await response.json().catch(() => ({}));
         throw new Error(errJson.error || `Server responded with ${response.status}`);
       }
