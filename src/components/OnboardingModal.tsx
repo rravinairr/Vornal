@@ -37,10 +37,6 @@ export const OnboardingModal: React.FC<OnboardingModalProps> = ({
           </h2>
           <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 max-w-sm mx-auto">
             Your mindful voice journal and structured Markdown vault.
-            <br />
-            <span className="font-medium text-stone-600 dark:text-stone-300">
-              Ideated by Ravi Nair
-            </span>
           </p>
         </div>
 

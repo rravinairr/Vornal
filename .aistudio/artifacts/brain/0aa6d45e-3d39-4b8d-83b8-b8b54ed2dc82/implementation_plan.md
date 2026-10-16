@@ -1,140 +1,44 @@
-# Voice Journal & Automatic Markdown Sync (.md)
+# Vornal - Fixes & Architecture Enhancement Plan
 
-A mobile-optimized voice journaling application that captures audio thoughts, generates structured Markdown notes (.md) with AI transcription and rich summaries, preserves the original voice recordings, and saves both files automatically into a user-selected folder on their device.
+## Overview & User Requests Addressed
 
-> [!IMPORTANT]
-> **Confirmed User Decisions & Defaults**:
-> - **Markdown Structure**: Rich journal format featuring an executive summary, mood & key themes, actionable reflections, and a complete verbatim transcript with timestamps.
-> - **Folder Saving Strategy**: Native File System Access API (`showDirectoryPicker`) for direct, automatic file writing into the user's chosen folder on supported devices (Android Chrome / desktop), paired with instant automatic mobile downloads and Web Share API ("Save to Files") fallback for iOS Safari and other browsers.
-> - **Triggering Behavior**: Fully automated workflow—transcription and disk saving initiate immediately upon stopping recording, while maintaining an active review player and history feed.
-
----
-
-### 1. Overview & Core Concept
-
-- **What It Does**: The user taps a single thumb-friendly microphone button to record a voice journal. While speaking, an interactive real-time audio waveform visualizer displays dynamic sound input. As soon as recording stops, the audio is preserved, streamed to the server-side Gemini 3.8 Flash model for speech-to-text synthesis, formatted into an elegant `.md` file, and automatically saved together with the audio recording into the user's chosen folder on their device.
-- **Target Audience / Persona**: Mobile journalers, thinkers, students, writers, and Obsidian/Logseq/Notion users who prefer voice reflection and want their audio notes and Markdown files synced directly to their local vault or phone directory.
-- **Key Value**: Zero-friction thought capture. Speak freely, tap stop, and your thoughts are immediately filed in Markdown and audio on your phone without copy-pasting or manual uploads.
-
----
-
-### 2. User Experience & Visual Design
-
-#### Visual Identity & Theme
-- **Aesthetic Direction**: Refined, warm utilitarian editorial. Calm, distraction-free environment with high daylight contrast for mobile readability.
-- **Color Palette (60-30-10 Rule)**:
-  - *Dominant Canvas (60%)*: Warm slate/stone canvas (`#F8F9FA` light / `#0F172A` dark) with tactile soft surfaces.
-  - *Structural Surfaces (30%)*: Crisp card containers with subtle hairline borders (`border-stone-200 dark:border-stone-800`), muted typography (`stone-500` / `stone-400`), and zero-pill clean metadata lines.
-  - *Accent Budget (10%)*: Deep terracotta / warm ember accent (`#DC2626` / `#E11D48` recording active states, `#2563EB` action highlights) reserved strictly for recording controls and primary triggers.
-- **Typography**:
-  - *Display*: Plus Jakarta Sans / Outfit for balanced modern titles.
-  - *Prose & Markdown*: Clean serif / sans-serif reading scale with generous 1.6x line-height.
-  - *Metrics & Timers*: `tabular-nums font-mono` for stable, non-jumping recording counters and audio seekbars.
-
-#### Key User Flows & Touch-Zone Ergonomics
-1. **Target Folder Setup**:
-   - A persistent folder indicator card in the upper workspace allows the user to tap "Choose Folder" (`showDirectoryPicker()`).
-   - If supported, the user picks a folder (e.g. `Journals`, `Vault/Daily`); the folder name and permissions are remembered in IndexedDB.
-   - If the browser does not support Directory Picker (e.g., iOS Safari), the app clearly displays "Direct Download & Share Sheet Mode", offering automatic saving to the Downloads folder or 1-tap "Save to Files" export.
-2. **Recording Flow (Natural Thumb Zone)**:
-   - A prominent 64px central record button anchored in the thumb reach zone (bottom 40% of viewport).
-   - Live canvas-based audio wave frequency visualizer, real-time elapsed timer (`00:42`), pause/resume toggle, and cancel button.
-3. **Auto-Transcribe & Auto-Save**:
-   - Immediately upon tapping "Finish Recording", the app stores the audio Blob in local IndexedDB.
-   - It streams the audio to `/api/transcribe`, generating a rich Markdown document.
-   - The app automatically writes `YYYY-MM-DD_HH-mm_journal.webm` and `YYYY-MM-DD_HH-mm_journal.md` into the user's selected folder (or triggers the instant download fallback).
-   - A tactile completion toast appears: *"Saved audio & transcript to [FolderName]!"*
-4. **Journal Library & Detail View**:
-   - Scrollable feed of previous journal sessions with audio playback, waveform scrubbing, interactive Markdown preview / raw editor, clipboard copying, and re-export tools.
+1. **GitHub Pages Deployment Issues**:
+   - Provide direct client-side execution for static hosting.
+   - Explain how GitHub Pages handles client-side routing, static assets, and Google OAuth domain restrictions.
+2. **Missing 3-Line Hamburger Menu in Header**:
+   - Remove clipping `overflow-hidden` container in the header.
+   - Pin the 3-line `Menu` button with `shrink-0` priority so it never gets clipped or hidden on any tablet or mobile screen width.
+   - Adapt "Login to save" button for small mobile screens.
+3. **Options Menu Uniformity**:
+   - Redesign all items in `SidebarDrawer` into a cohesive, uniform card design system (matching radius, consistent padding, standardized icon tiles, uniform typography, aligned switches and buttons).
+4. **Clarification on "GitHub Pages" Option**:
+   - Remove the confusing "GitHub Pages domain or custom Client ID setup" button from the main user menu.
+   - Domain assistance will trigger contextually only if an OAuth domain whitelist error occurs.
+5. **Tone Down Attribution**:
+   - Remove "Ideated by Ravi Nair" from the header top bar, onboarding modal, and drawer footer.
+   - Preserve full, thoughtful attribution exclusively inside the `About & Privacy` modal.
+6. **Solid README.md on App Philosophy**:
+   - Create a rich, comprehensive `README.md` at `/README.md` detailing the core philosophy of Vornal (somatic calming, local-first data sovereignty, audio preservation, structured markdown reflections, and seamless cloud syncing).
+7. **Google API Credits & BYOK (Bring Your Own Key)**:
+   - Provide a definitive explanation: On GitHub Pages, Native Speech is 100% free and client-side (uses zero credits).
+   - Add a "Bring Your Own Key" (BYOK) Gemini setting so visitors who want AI summaries can enter their own free Gemini API key, ensuring the creator's credits are NEVER consumed by third-party users.
 
 ---
 
-### 3. Key Product Decisions & Trade-Offs
+## Action Steps
 
-- **Multi-Tier File Saving Architecture**:
-  - *Approach*: Combine the File System Access API with automatic HTML5 blob downloads and Web Share API.
-  - *Why*: Web security sandboxes restrict arbitrary background file system writes unless granted via `showDirectoryPicker()`. By implementing native directory handles for Chromium/Android and seamless fallback for iOS/Safari, the app operates reliably on 100% of mobile and desktop browsers.
-- **Server-Side Gemini Audio Processing**:
-  - *Approach*: Send the recorded audio (`audio/webm` or `audio/wav`) to a server proxy endpoint (`/api/transcribe`) utilizing `@google/genai` with `gemini-3.8-flash`.
-  - *Why*: Direct multimodal audio reasoning produces vastly superior results compared to client Web Speech API: it handles background noise, punctuates properly, identifies themes, drafts a concise executive summary, and produces formatted Markdown with frontmatter. The API key remains strictly server-side.
-- **Dual Persistence (Local IndexedDB + File System)**:
-  - *Approach*: Every recording and markdown transcript is saved in IndexedDB as well as written to the disk folder.
-  - *Why*: If file permissions expire or the user changes folders, all historical voice notes and transcripts remain intact and searchable offline in the browser.
-
----
-
-### 4. Technical Architecture & Data Strategy
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                       Client Viewport (Web/Mobile)              │
-│                                                                 │
-│  ┌────────────────────────┐         ┌────────────────────────┐  │
-│  │ Folder Configuration   │         │ Live Audio Visualizer  │  │
-│  │ (showDirectoryPicker)  │         │ (Web Audio API Canvas) │  │
-│  └───────────┬────────────┘         └───────────┬────────────┘  │
-│              │                                  │               │
-│              ▼                                  ▼               │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │               MediaRecorder & Audio Pipeline              │  │
-│  │          (Record, Pause, Stop -> Blob & Base64)           │  │
-│  └───────────────────────────┬───────────────────────────────┘  │
-│                              │                                  │
-│              ┌───────────────┴───────────────┐                  │
-│              ▼                               ▼                  │
-│   ┌─────────────────────┐         ┌─────────────────────┐       │
-│   │ IndexedDB Storage   │         │ Target Folder Sync  │       │
-│   │ (Notes, Audio Blob) │         │ (FileSystemAccess)  │       │
-│   └─────────────────────┘         └──────────▲──────────┘       │
-│                                              │                  │
-└──────────────────────────────────────────────┼──────────────────┘
-                                               │
-                                 POST /api/transcribe (Audio Base64)
-                                               │
-                                               ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Express / Vite API Server                    │
-│                                                                 │
-│   GoogleGenAI ({ apiKey: process.env.GEMINI_API_KEY })          │
-│   Model: "gemini-3.8-flash"                                     │
-│   Input: Audio InlineData (audio/webm) + Rich Markdown Prompt   │
-│   Output: { title, summary, themes, transcript, markdown }      │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-#### Markdown Document Structure Generated
-```markdown
----
-title: Voice Journal - Morning Strategy Session
-date: 2026-10-14 10:02
-audio_file: 2026-10-14_10-02_voice-note.webm
-duration: 02:45
-mood: Focused & Optimistic
-tags: [journal, planning, strategy]
----
-
-# Voice Journal - Morning Strategy Session
-
-## Executive Summary
-A concise 2-3 sentence overview of the voice note.
-
-## Key Themes & Highlights
-- Primary insight or talking point
-- Second observation or thought thread
-
-## Action Items & Next Steps
-- [ ] Next step derived from the voice journal
-
-## Full Transcript
-[00:00] Complete, punctuated, and paragraph-formatted verbatim transcript...
-```
-
-#### Planned Deliverables
-1. **Server-Side API (`/api/transcribe`)**: Express & Vite handler utilizing `@google/genai` to receive audio and return the structured markdown payload.
-2. **Audio Recorder Hook (`useAudioRecorder`)**: MediaRecorder integration with real-time frequency analysis (`AnalyserNode`), pause/resume, and blob generation.
-3. **Folder Management Engine (`folderSyncService`)**: Manages `FileSystemDirectoryHandle`, file creation, permission verification, and mobile fallback triggers.
-4. **App UI & Interactive Features**:
-   - Folder selector with persistent permission status.
-   - Recording console with real-time waveform and ergonomic thumb controls.
-   - Auto-transcribe and auto-save notification sequence.
-   - History viewer with audio scrubbing, markdown rendering, copy-to-clipboard, and manual download triggers.
+1. **Client-Side Gemini Service (`src/utils/geminiClient.ts`)**:
+   - Allow saving/retrieving user's own Gemini API key in `localStorage`.
+   - Provide direct client-side multimodal synthesis for static GitHub Pages.
+2. **Header Fixes & Attribution Removal (`src/App.tsx`)**:
+   - Remove `overflow-hidden` so the 3-line hamburger menu button is always visible.
+   - Remove "Ideated by Ravi Nair" from header and onboarding banner.
+   - Retain credit in `AboutPrivacyModal.tsx`.
+3. **Sidebar Drawer Uniformity (`src/components/SidebarDrawer.tsx`)**:
+   - Standardize all section cards to uniform dimensions, padding, headers, and controls.
+   - Remove the developer "GitHub Pages" link from the main drawer.
+   - Add the BYOK Gemini API key card with secure local storage.
+4. **Onboarding Modal Cleanup (`src/components/OnboardingModal.tsx`)**:
+   - Remove attribution from onboarding dialog; keep it focused on choice.
+5. **Philosophy & Setup Documentation (`/README.md`)**:
+   - Create `/README.md` covering philosophy, features, privacy architecture, and GitHub Pages guide.

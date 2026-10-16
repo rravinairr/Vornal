@@ -1041,32 +1041,28 @@ export default function App() {
         isRecording={isRecording}
       />
 
-      {/* Top Bar (Glassy, never trims or glitches on tablet, icon-driven buttons) */}
+      {/* Top Bar (Glassy, never trims or glitches on tablet, three-line menu always visible) */}
       <header className="sticky top-0 z-40 bg-white/80 dark:bg-stone-900/80 backdrop-blur-md border-b border-stone-200/60 dark:border-stone-800/60 shadow-xs pt-safe transition-all">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 overflow-hidden">
-          {/* Zone 1: Brand & Ideator */}
-          <div className="flex items-center gap-2.5 min-w-0 shrink-0">
+        <div className="max-w-6xl mx-auto px-3 sm:px-6 h-16 flex items-center justify-between gap-2 overflow-visible">
+          {/* Zone 1: Brand (Compact, clean sovereign journal) */}
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             <div
               style={{ backgroundColor: currentAccentHex }}
               className="w-9 h-9 rounded-2xl flex items-center justify-center text-white shadow-xs shrink-0"
             >
               <Mic className="w-5 h-5" />
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold tracking-tight text-lg font-serif">Vornal</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-md hidden sm:inline-block">
-                  Vault
-                </span>
-              </div>
-              <p className="text-[10px] sm:text-[11px] text-stone-400 truncate -mt-0.5">
-                <span>Ideated by </span>
-                <strong className="text-stone-600 dark:text-stone-300 font-medium">Ravi Nair</strong>
-              </p>
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold tracking-tight text-lg font-serif text-stone-900 dark:text-stone-100">
+                Vornal
+              </span>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-md hidden xs:inline-block">
+                Vault
+              </span>
             </div>
           </div>
 
-          {/* Zone 2: Streamlined Responsive Actions (Never wraps on tablet) */}
+          {/* Zone 2: Responsive Actions (Menu three-line button guaranteed visible) */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {/* Google Drive: If not logged in, show 'Login to save' button */}
             {!driveState.isAuthenticated ? (
@@ -1074,7 +1070,7 @@ export default function App() {
                 type="button"
                 onClick={() => handleSignInDrive(false)}
                 title="Sign in with Google to save notes & pull data"
-                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-300/80 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
+                className="min-h-[40px] px-2.5 sm:px-3 py-1.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-300/80 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
               >
                 <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -1082,10 +1078,11 @@ export default function App() {
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                 </svg>
-                <span>Login to save</span>
+                <span className="hidden xs:inline">Login to save</span>
+                <span className="xs:hidden">Login</span>
               </button>
             ) : (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 {/* Pull from Drive button */}
                 <button
                   type="button"
@@ -1158,15 +1155,15 @@ export default function App() {
               )}
             </a>
 
-            {/* Menu Drawer Toggle Button */}
+            {/* Menu Drawer Toggle Button (Three-line option - guaranteed visible) */}
             <button
               type="button"
               onClick={() => setIsSidebarOpen(true)}
               aria-label="Open Storage & Settings Sidebar"
-              title="Open Storage & Settings Sidebar"
-              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 bg-stone-100/80 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+              title="Options & Settings"
+              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/90 dark:border-stone-800 bg-stone-100/90 dark:bg-stone-800/90 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-100 flex items-center justify-center transition-colors shrink-0 cursor-pointer shadow-xs"
             >
-              <Menu className="w-4 h-4" />
+              <Menu className="w-4 h-4 stroke-[2.2]" />
             </button>
           </div>
         </div>
@@ -1300,9 +1297,9 @@ export default function App() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsAboutModalOpen(true)}
-              className="hover:text-stone-800 dark:hover:text-stone-200 underline font-medium"
+              className="hover:text-stone-800 dark:hover:text-stone-200 underline font-medium cursor-pointer"
             >
-              Ideated by Ravi Nair • Privacy Policy
+              About &amp; Philosophy • Privacy Policy
             </button>
             <button
               onClick={() => setIsThemeModalOpen(true)}
