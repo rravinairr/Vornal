@@ -29,6 +29,7 @@ import {
   ChevronDown,
   BookOpen,
   Menu,
+  RefreshCw,
 } from "lucide-react";
 import {
   JournalEntry,
@@ -62,6 +63,7 @@ import {
   getAccessToken,
   getOrCreateDriveFolder,
   uploadJournalToDrive,
+  pullJournalsFromDrive,
 } from "./utils/googleDrive";
 import {
   isNativeSpeechSupported,
@@ -81,6 +83,8 @@ import { AboutPrivacyModal } from "./components/AboutPrivacyModal";
 import { ThemeCustomizerModal } from "./components/ThemeCustomizerModal";
 import { SidebarDrawer } from "./components/SidebarDrawer";
 import { FloatingRecordButton } from "./components/FloatingRecordButton";
+import { OnboardingModal } from "./components/OnboardingModal";
+import { GoogleDriveAuthHelpModal } from "./components/GoogleDriveAuthHelpModal";
 
 interface Toast {
   id: number;
@@ -122,6 +126,10 @@ export default function App() {
   const [isDriveFolderModalOpen, setIsDriveFolderModalOpen] = useState(false);
   const [isAboutModalOpen, setIsAboutModalOpen] = useState(false);
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [isAuthHelpModalOpen, setIsAuthHelpModalOpen] = useState(false);
+  const [isPullingDrive, setIsPullingDrive] = useState(false);
+  const [autoDownloadFiles, setAutoDownloadFiles] = useState(false);
 
   // Google Drive state
   const [driveState, setDriveState] = useState<DriveAuthState>({
@@ -226,8 +234,17 @@ export default function App() {
         const savedHex = await getSettingFromDB<string>("vornal_custom_hex");
         if (savedHex) setCustomHex(savedHex);
 
+        const savedAutoDownload = await getSettingFromDB<boolean>("vornal_auto_download_files");
+        if (savedAutoDownload !== null) setAutoDownloadFiles(savedAutoDownload);
+
         const savedFolderId = await getSettingFromDB<string>("vornal_drive_folder_id");
         const savedFolderName = await getSettingFromDB<string>("vornal_drive_folder_name");
+
+        // First time user check
+        const userChoice = localStorage.getItem("vornal_user_auth_choice");
+        if (!userChoice) {
+          setIsOnboardingOpen(true);
+        }
 
         // Restore directory handle if supported
         if (isDirectoryPickerSupported()) {
@@ -246,6 +263,7 @@ export default function App() {
         initDriveAuth(
           async (user, token) => {
             try {
+              localStorage.setItem("vornal_user_auth_choice", "authenticated");
               let targetFolderName = savedFolderName || "Vornal Voice Vault";
               const folder = await getOrCreateDriveFolder(token, targetFolderName);
               setDriveState((prev) => ({
@@ -289,6 +307,17 @@ export default function App() {
     await saveSettingToDB("vornal_auto_sync_drive", val);
   };
 
+  const handleToggleAutoDownloadFiles = async (val: boolean) => {
+    setAutoDownloadFiles(val);
+    await saveSettingToDB("vornal_auto_download_files", val);
+    showToast(
+      val
+        ? "Auto-download enabled: files will download immediately after recording"
+        : "Auto-download disabled: recordings stay private in your vault. Click download anytime.",
+      "info"
+    );
+  };
+
   const handleToggleEngine = async (engine: TranscriptionEngine) => {
     setTranscriptionEngine(engine);
     await saveSettingToDB("vornal_transcription_engine", engine);
@@ -305,6 +334,11 @@ export default function App() {
     await saveSettingToDB("vornal_theme_mode", mode);
   };
 
+  const handleQuickToggleTheme = async () => {
+    const nextMode: ThemeMode = themeMode === "dark" ? "light" : "dark";
+    await handleChangeThemeMode(nextMode);
+  };
+
   const handleChangeAccentColor = async (accent: AccentColor) => {
     setAccentColor(accent);
     await saveSettingToDB("vornal_accent_color", accent);
@@ -315,12 +349,78 @@ export default function App() {
     await saveSettingToDB("vornal_custom_hex", hex);
   };
 
-  const handleSignInDrive = async () => {
+  const handleContinueOffline = () => {
+    localStorage.setItem("vornal_user_auth_choice", "guest");
+    setIsOnboardingOpen(false);
+    showToast("Offline vault active. 100% private. Click 'Login to save' anytime!", "success");
+  };
+
+  const handleOnboardingLogin = async () => {
+    setIsOnboardingOpen(false);
+    await handleSignInDrive(true);
+  };
+
+  const handlePullFromDrive = async (passedToken?: string, passedFolderId?: string) => {
+    setIsPullingDrive(true);
     try {
+      const token = passedToken || (await getAccessToken());
+      if (!token) {
+        showToast("Please sign in to Google Drive first", "error");
+        return;
+      }
+      const folderId =
+        passedFolderId ||
+        driveState.driveFolderId ||
+        (await getOrCreateDriveFolder(token, driveState.driveFolderName || "Vornal Voice Vault")).folderId;
+
+      showToast("Pulling notes & audio from Google Drive folder...", "info");
+      const result = await pullJournalsFromDrive(token, folderId);
+
+      if (result.importedEntries.length > 0) {
+        let importedCount = 0;
+        for (const imported of result.importedEntries) {
+          const exists = journals.some(
+            (j) =>
+              j.id === imported.id ||
+              (j.title === imported.title && Math.abs(j.timestamp - imported.timestamp) < 60000)
+          );
+          if (!exists) {
+            await saveJournalToDB(imported);
+            setJournals((prev) => [imported, ...prev]);
+            importedCount++;
+          }
+        }
+
+        if (importedCount > 0) {
+          showToast(
+            `Restored ${importedCount} reflection${importedCount === 1 ? "" : "s"} from Google Drive!`,
+            "success"
+          );
+        } else {
+          showToast("Your local vault is already up to date with Google Drive!", "info");
+        }
+      } else {
+        showToast("No previous notes found in Google Drive folder.", "info");
+      }
+    } catch (err: any) {
+      console.error("Pull from Drive failed:", err);
+      showToast(err.message || "Failed to pull notes from Google Drive", "error");
+    } finally {
+      setIsPullingDrive(false);
+    }
+  };
+
+  const handleSignInDrive = async (pullDataAfterLogin = false) => {
+    try {
+      showToast("Connecting to Google...", "info");
       const res = await googleSignIn();
       if (res) {
-        showToast("Connecting to Google Drive...", "info");
-        const folder = await getOrCreateDriveFolder(res.accessToken, driveState.driveFolderName || "Vornal Voice Vault");
+        localStorage.setItem("vornal_user_auth_choice", "authenticated");
+        showToast("Connecting to Google Drive folder...", "info");
+        const folder = await getOrCreateDriveFolder(
+          res.accessToken,
+          driveState.driveFolderName || "Vornal Voice Vault"
+        );
         setDriveState({
           isAuthenticated: true,
           userEmail: res.user.email,
@@ -332,16 +432,26 @@ export default function App() {
           isSyncingAll: false,
         });
         showToast(`Connected as ${res.user.displayName || res.user.email}! Folder ready.`, "success");
+
+        if (pullDataAfterLogin) {
+          await handlePullFromDrive(res.accessToken, folder.folderId);
+        }
       }
     } catch (err: any) {
-      console.error("Sign-in failed:", err);
-      showToast(err.message || "Failed to sign in with Google", "error");
+      console.error("Sign-in notice:", err);
+      if (err.isDomainUnauthorized || err.code === "auth/unauthorized-domain") {
+        setIsAuthHelpModalOpen(true);
+        showToast("Domain authorization needed for GitHub Pages.", "error");
+      } else {
+        showToast(err.message || "Failed to sign in with Google", "error");
+      }
     }
   };
 
   const handleSignOutDrive = async () => {
     try {
       await googleSignOut();
+      localStorage.setItem("vornal_user_auth_choice", "guest");
       setDriveState({
         isAuthenticated: false,
         userEmail: null,
@@ -565,7 +675,7 @@ export default function App() {
           driveSyncStatus: "failed",
         };
 
-        // Auto-save to phone folder or download
+        // Save to phone folder if configured, or download only if autoDownloadFiles is enabled
         if (folderConfig.handle) {
           try {
             const writeResult = await writeFilesToFolder(
@@ -578,15 +688,19 @@ export default function App() {
             if (writeResult.success) {
               nativeEntry.savedToFolder = true;
               showToast(`Saved ${mdFileName} & audio to ${folderConfig.folderName}!`, "success");
-            } else {
+            } else if (autoDownloadFiles) {
               downloadJournalFiles(audioBlob, audioFileName, nativeEntry.markdown, mdFileName);
             }
           } catch {
-            downloadJournalFiles(audioBlob, audioFileName, nativeEntry.markdown, mdFileName);
+            if (autoDownloadFiles) {
+              downloadJournalFiles(audioBlob, audioFileName, nativeEntry.markdown, mdFileName);
+            }
           }
-        } else {
+        } else if (autoDownloadFiles) {
           downloadJournalFiles(audioBlob, audioFileName, nativeEntry.markdown, mdFileName);
           showToast(`Voice note & ${mdFileName} saved to device!`, "success");
+        } else {
+          showToast("Reflection & audio preserved safely in vault!", "success");
         }
 
         // Auto-sync to Drive if connected
@@ -689,7 +803,7 @@ export default function App() {
           transcriptionStatus: "completed",
         };
 
-        // Auto-save to phone folder
+        // Save to phone folder if configured, or download only if autoDownloadFiles is enabled
         if (folderConfig.handle) {
           setProcessingStep(`Writing files to ${folderConfig.folderName}...`);
           try {
@@ -703,17 +817,21 @@ export default function App() {
             if (writeResult.success) {
               completedEntry.savedToFolder = true;
               showToast(`Saved ${mdFileName} & audio to ${folderConfig.folderName}!`, "success");
-            } else {
+            } else if (autoDownloadFiles) {
               downloadJournalFiles(audioBlob, audioFileName, completedEntry.markdown, mdFileName);
               showToast(`Saved to vault & downloaded files to device!`, "info");
             }
           } catch {
-            downloadJournalFiles(audioBlob, audioFileName, completedEntry.markdown, mdFileName);
-            showToast(`Downloaded files to device!`, "info");
+            if (autoDownloadFiles) {
+              downloadJournalFiles(audioBlob, audioFileName, completedEntry.markdown, mdFileName);
+              showToast(`Downloaded files to device!`, "info");
+            }
           }
-        } else {
+        } else if (autoDownloadFiles) {
           downloadJournalFiles(audioBlob, audioFileName, completedEntry.markdown, mdFileName);
           showToast(`Voice note & ${mdFileName} downloaded to device!`, "success");
+        } else {
+          showToast("Reflection & audio preserved safely in vault!", "success");
         }
 
         // Auto-sync to Google Drive
@@ -923,11 +1041,11 @@ export default function App() {
         isRecording={isRecording}
       />
 
-      {/* Top Bar Contract (Glassy, never trims on tablet, icon-driven buttons) */}
-      <header className="sticky top-0 z-40 bg-white/75 dark:bg-stone-900/75 backdrop-blur-xl border-b border-stone-200/50 dark:border-stone-800/50 shadow-xs pt-safe transition-all">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+      {/* Top Bar (Glassy, never trims or glitches on tablet, icon-driven buttons) */}
+      <header className="sticky top-0 z-40 bg-white/80 dark:bg-stone-900/80 backdrop-blur-md border-b border-stone-200/60 dark:border-stone-800/60 shadow-xs pt-safe transition-all">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-2 overflow-hidden">
           {/* Zone 1: Brand & Ideator */}
-          <div className="flex items-center gap-2.5 min-w-0 shrink">
+          <div className="flex items-center gap-2.5 min-w-0 shrink-0">
             <div
               style={{ backgroundColor: currentAccentHex }}
               className="w-9 h-9 rounded-2xl flex items-center justify-center text-white shadow-xs shrink-0"
@@ -948,14 +1066,86 @@ export default function App() {
             </div>
           </div>
 
-          {/* Zone 2 & 3: Compact Icon Navigation for Tablet & Desktop (No wide text labels to prevent trimming) */}
+          {/* Zone 2: Streamlined Responsive Actions (Never wraps on tablet) */}
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            {/* Vault Feed Shortcut (Icon with count badge) */}
+            {/* Google Drive: If not logged in, show 'Login to save' button */}
+            {!driveState.isAuthenticated ? (
+              <button
+                type="button"
+                onClick={() => handleSignInDrive(false)}
+                title="Sign in with Google to save notes & pull data"
+                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-300/80 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all shrink-0 cursor-pointer"
+              >
+                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
+                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+                </svg>
+                <span>Login to save</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                {/* Pull from Drive button */}
+                <button
+                  type="button"
+                  onClick={() => handlePullFromDrive()}
+                  disabled={isPullingDrive}
+                  title="Pull latest reflections from Google Drive"
+                  aria-label="Pull from Drive"
+                  className="min-h-[40px] px-2.5 rounded-xl border border-blue-200/80 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors flex items-center justify-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isPullingDrive ? "animate-spin" : ""}`} />
+                  <span className="hidden md:inline">{isPullingDrive ? "Pulling..." : "Pull"}</span>
+                </button>
+
+                {/* User avatar & sign out */}
+                <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800/80 p-1 pl-1.5 rounded-2xl border border-stone-200/80 dark:border-stone-700/80 shrink-0">
+                  {driveState.userPhoto ? (
+                    <img
+                      src={driveState.userPhoto}
+                      alt={driveState.userName || "User"}
+                      className="w-6 h-6 rounded-full border border-stone-300 dark:border-stone-600 object-cover"
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center">
+                      {(driveState.userName || driveState.userEmail || "U")[0].toUpperCase()}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSignOutDrive}
+                    title="Sign out of Google"
+                    aria-label="Sign out"
+                    className="w-6 h-6 rounded-lg text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 flex items-center justify-center cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Quick 1-Click Light/Dark Mode Toggle */}
+            <button
+              type="button"
+              onClick={handleQuickToggleTheme}
+              aria-label={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
+              title={`Switch to ${themeMode === "dark" ? "Light" : "Dark"} mode`}
+              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+            >
+              {themeMode === "dark" ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-stone-600" />
+              )}
+            </button>
+
+            {/* Vault Feed Count Shortcut */}
             <a
               href="#vault-feed"
               aria-label={`Journal Feed (${journals.length})`}
               title={`Vault Library (${journals.length} reflections)`}
-              className="relative min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors"
+              className="relative min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors shrink-0"
             >
               <BookOpen className="w-4 h-4" />
               {journals.length > 0 && (
@@ -968,113 +1158,16 @@ export default function App() {
               )}
             </a>
 
-            {/* Google Drive Status & Folder Icon */}
+            {/* Menu Drawer Toggle Button */}
             <button
-              onClick={() => setIsSidebarOpen(true)}
-              aria-label="Google Drive & Storage Settings"
-              title={
-                driveState.isAuthenticated
-                  ? `Connected to Drive (${driveState.driveFolderName})`
-                  : "Connect Google Drive & Storage"
-              }
-              className={`relative min-h-[40px] min-w-[40px] rounded-xl border transition-colors flex items-center justify-center ${
-                driveState.isAuthenticated
-                  ? "border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"
-                  : "border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300"
-              }`}
-            >
-              <Cloud className="w-4 h-4" />
-              {driveState.isAuthenticated && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-stone-900" />
-              )}
-            </button>
-
-            {/* Engine indicator icon (Native vs Gemini) */}
-            <button
-              onClick={() => handleToggleEngine(transcriptionEngine === "native" ? "gemini" : "native")}
-              aria-label="Toggle Speech Engine"
-              title={
-                transcriptionEngine === "native"
-                  ? "Speech Engine: Native Browser (100% offline, zero API keys). Click to switch to Gemini AI."
-                  : "Speech Engine: Gemini AI. Click to switch to Native Speech."
-              }
-              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors"
-            >
-              {transcriptionEngine === "native" ? (
-                <Zap className="w-4 h-4 text-emerald-500" />
-              ) : (
-                <Sparkles className="w-4 h-4 text-indigo-500" />
-              )}
-            </button>
-
-            {/* Theme & Palette trigger */}
-            <button
-              onClick={() => setIsThemeModalOpen(true)}
-              aria-label="Theme & Colors"
-              title="Change theme mode & primary color"
-              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors"
-            >
-              <Palette className="w-4 h-4" style={{ color: currentAccentHex }} />
-            </button>
-
-            {/* About & Privacy Info Icon */}
-            <button
-              onClick={() => setIsAboutModalOpen(true)}
-              aria-label="About & Privacy Policy"
-              title="About Vornal, Ideator Ravi Nair & Privacy Policy"
-              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors"
-            >
-              <Info className="w-4 h-4" />
-            </button>
-
-            {/* Sidebar Drawer Toggle Button */}
-            <button
+              type="button"
               onClick={() => setIsSidebarOpen(true)}
               aria-label="Open Storage & Settings Sidebar"
-              title="Open Storage & Sync Sidebar"
-              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 bg-stone-100/80 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 flex items-center justify-center transition-colors"
+              title="Open Storage & Settings Sidebar"
+              className="min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 bg-stone-100/80 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-200 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
             >
               <Menu className="w-4 h-4" />
             </button>
-
-            {/* Google Login for anyone accessing the app */}
-            {!driveState.isAuthenticated ? (
-              <button
-                onClick={handleSignInDrive}
-                title="Sign in with Google"
-                className="min-h-[40px] px-3 py-1.5 rounded-xl bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 hover:bg-stone-50 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 text-xs font-semibold shadow-xs flex items-center gap-1.5 transition-all"
-              >
-                <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                </svg>
-                <span className="hidden sm:inline">Login</span>
-              </button>
-            ) : (
-              <div className="flex items-center gap-1 bg-stone-100 dark:bg-stone-800/80 p-1 pl-1.5 rounded-2xl border border-stone-200/80 dark:border-stone-700/80">
-                {driveState.userPhoto ? (
-                  <img
-                    src={driveState.userPhoto}
-                    alt={driveState.userName || "User"}
-                    className="w-6 h-6 rounded-full border border-stone-300 dark:border-stone-600 object-cover"
-                  />
-                ) : (
-                  <div className="w-6 h-6 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center">
-                    {(driveState.userName || driveState.userEmail || "U")[0].toUpperCase()}
-                  </div>
-                )}
-                <button
-                  onClick={handleSignOutDrive}
-                  title="Sign out of Google"
-                  aria-label="Sign out"
-                  className="w-6 h-6 rounded-lg text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 flex items-center justify-center"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </header>
@@ -1256,8 +1349,13 @@ export default function App() {
         onToggleEngine={handleToggleEngine}
         onOpenThemeModal={() => setIsThemeModalOpen(true)}
         onOpenAboutModal={() => setIsAboutModalOpen(true)}
+        onOpenAuthHelpModal={() => setIsAuthHelpModalOpen(true)}
         onShowMessage={showToast}
         accentColorHex={currentAccentHex}
+        onPullFromDrive={handlePullFromDrive}
+        isPullingDrive={isPullingDrive}
+        autoDownloadFiles={autoDownloadFiles}
+        onToggleAutoDownloadFiles={handleToggleAutoDownloadFiles}
       />
 
       {/* Floating Record Button that stays floating at all times */}
@@ -1271,6 +1369,21 @@ export default function App() {
         onStopRecording={handleFinishRecording}
         accentColorHex={currentAccentHex}
         isProcessing={isProcessing}
+      />
+
+      {/* First-time User Choice Onboarding Modal */}
+      <OnboardingModal
+        isOpen={isOnboardingOpen}
+        onLoginWithDrive={handleOnboardingLogin}
+        onContinueOffline={handleContinueOffline}
+        accentColorHex={currentAccentHex}
+      />
+
+      {/* GitHub Pages Google Drive Auth Help Modal */}
+      <GoogleDriveAuthHelpModal
+        isOpen={isAuthHelpModalOpen}
+        onClose={() => setIsAuthHelpModalOpen(false)}
+        onRetryWithCustomId={() => handleSignInDrive(true)}
       />
 
       {/* Google Drive Folder Manager & Move Files Modal */}

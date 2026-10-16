@@ -16,6 +16,8 @@ import {
   RefreshCw,
   LogOut,
   FolderSync,
+  Download,
+  Key,
 } from "lucide-react";
 import { DriveAuthState, FolderConfig, TranscriptionEngine, ThemeMode, AccentColor } from "../types";
 import { GoogleDriveSyncBanner } from "./GoogleDriveSyncBanner";
@@ -43,8 +45,15 @@ interface SidebarDrawerProps {
   // Modals
   onOpenThemeModal: () => void;
   onOpenAboutModal: () => void;
+  onOpenAuthHelpModal?: () => void;
   onShowMessage: (msg: string, type?: "success" | "info" | "error") => void;
   accentColorHex?: string;
+  // Pull from drive
+  onPullFromDrive?: () => Promise<void>;
+  isPullingDrive?: boolean;
+  // Auto-download files
+  autoDownloadFiles?: boolean;
+  onToggleAutoDownloadFiles?: (val: boolean) => void;
 }
 
 export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
@@ -65,8 +74,13 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
   onToggleEngine,
   onOpenThemeModal,
   onOpenAboutModal,
+  onOpenAuthHelpModal,
   onShowMessage,
   accentColorHex = "#6366F1",
+  onPullFromDrive,
+  isPullingDrive = false,
+  autoDownloadFiles = false,
+  onToggleAutoDownloadFiles,
 }) => {
   if (!isOpen) return null;
 
@@ -200,13 +214,38 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               totalRecordingsCount={totalJournalsCount}
               unsyncedCount={unsyncedDriveCount}
             />
+
+            {/* Pull from Drive button when authenticated */}
+            {driveState.isAuthenticated && onPullFromDrive && (
+              <button
+                type="button"
+                onClick={onPullFromDrive}
+                disabled={isPullingDrive}
+                className="w-full py-2.5 px-3 rounded-xl bg-blue-50/80 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/40 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-xs font-semibold flex items-center justify-center gap-2 transition-colors mt-2"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isPullingDrive ? "animate-spin" : ""}`} />
+                <span>{isPullingDrive ? "Pulling notes from Drive..." : "Pull notes & audio from Drive folder"}</span>
+              </button>
+            )}
+
+            {/* GitHub Pages Auth Helper link */}
+            {onOpenAuthHelpModal && (
+              <button
+                type="button"
+                onClick={onOpenAuthHelpModal}
+                className="w-full text-left text-[11px] text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 flex items-center gap-1.5 py-1 px-1 transition-colors"
+              >
+                <Key className="w-3 h-3 text-stone-400" />
+                <span>GitHub Pages domain or custom Client ID setup</span>
+              </button>
+            )}
           </section>
 
-          {/* Section 3: Phone Folder Auto-Save Selector */}
+          {/* Section 3: Phone Folder & Downloads */}
           <section className="space-y-2">
             <span className="text-xs font-bold text-stone-700 dark:text-stone-300 uppercase tracking-wider flex items-center gap-1.5">
               <HardDrive className="w-3.5 h-3.5 text-stone-500" />
-              Local Device Folder
+              Local Device &amp; Downloads
             </span>
 
             <FolderSelector
@@ -214,6 +253,37 @@ export const SidebarDrawer: React.FC<SidebarDrawerProps> = ({
               onUpdateConfig={onUpdateFolderConfig}
               onShowMessage={onShowMessage}
             />
+
+            {/* Auto-download toggle */}
+            <div className="p-3.5 rounded-2xl bg-white dark:bg-stone-800/80 border border-stone-200/80 dark:border-stone-700/80 flex items-center justify-between gap-3 shadow-xs">
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
+                  <Download className="w-3.5 h-3.5 text-stone-600 dark:text-stone-300 shrink-0" />
+                  <span>Auto-download files on record</span>
+                </div>
+                <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-0.5 leading-relaxed">
+                  {autoDownloadFiles
+                    ? "Enabled: automatically triggers browser downloads after recording."
+                    : "Disabled (Recommended): recordings stay safely in your private vault. Click download whenever you need files."}
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoDownloadFiles}
+                aria-label="Toggle auto download"
+                onClick={() => onToggleAutoDownloadFiles?.(!autoDownloadFiles)}
+                className={`w-11 h-6 rounded-full transition-colors relative flex items-center shrink-0 p-0.5 ${
+                  autoDownloadFiles ? "bg-blue-600" : "bg-stone-300 dark:bg-stone-700"
+                }`}
+              >
+                <span
+                  className={`w-5 h-5 rounded-full bg-white shadow-xs transition-transform ${
+                    autoDownloadFiles ? "translate-x-5" : "translate-x-0"
+                  }`}
+                />
+              </button>
+            </div>
           </section>
 
           {/* Section 4: Quick Shortcuts & Customization */}

@@ -10,14 +10,24 @@ import {
 import firebaseConfig from "../../firebase-applet-config.json";
 import { JournalEntry, DriveFolderInfo } from "../types";
 
-export const SCOPES = ["https://www.googleapis.com/auth/drive.file"];
+export const SCOPES = [
+  "https://www.googleapis.com/auth/drive.file",
+  "https://www.googleapis.com/auth/userinfo.profile",
+  "https://www.googleapis.com/auth/userinfo.email",
+];
+
+export interface DriveUser {
+  displayName: string | null;
+  email: string | null;
+  photoURL: string | null;
+  uid?: string;
+}
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 
 const provider = new GoogleAuthProvider();
 provider.addScope("https://www.googleapis.com/auth/drive.file");
-// Prompt to select account
 provider.setCustomParameters({
   prompt: "select_account",
 });
@@ -25,26 +35,182 @@ provider.setCustomParameters({
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
 
+const TOKEN_KEY = "vornal_drive_token";
+const TOKEN_EXPIRY_KEY = "vornal_drive_token_expiry";
+const USER_KEY = "vornal_drive_user";
+const CUSTOM_CLIENT_ID_KEY = "vornal_custom_client_id";
+
+export const getCustomOAuthClientId = (): string => {
+  try {
+    return localStorage.getItem(CUSTOM_CLIENT_ID_KEY) || "";
+  } catch {
+    return "";
+  }
+};
+
+export const setCustomOAuthClientId = (clientId: string): void => {
+  try {
+    if (clientId.trim()) {
+      localStorage.setItem(CUSTOM_CLIENT_ID_KEY, clientId.trim());
+    } else {
+      localStorage.removeItem(CUSTOM_CLIENT_ID_KEY);
+    }
+  } catch {}
+};
+
+export const setCachedToken = (
+  token: string,
+  user: { displayName: string | null; email: string | null; photoURL: string | null },
+  expiresInSeconds = 3500
+) => {
+  cachedAccessToken = token;
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + expiresInSeconds * 1000));
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  } catch (e) {
+    console.warn("Could not cache token to storage:", e);
+  }
+};
+
+export const getCachedToken = (): string | null => {
+  if (cachedAccessToken) return cachedAccessToken;
+  try {
+    const token = localStorage.getItem(TOKEN_KEY);
+    const expiry = localStorage.getItem(TOKEN_EXPIRY_KEY);
+    if (token && expiry && Number(expiry) > Date.now()) {
+      cachedAccessToken = token;
+      return token;
+    }
+  } catch {}
+  return null;
+};
+
+export const getCachedUser = (): DriveUser | null => {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const clearCachedAuth = () => {
+  cachedAccessToken = null;
+  try {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRY_KEY);
+    localStorage.removeItem(USER_KEY);
+  } catch {}
+};
+
 export const initDriveAuth = (
-  onAuthSuccess?: (user: User, token: string) => void,
+  onAuthSuccess?: (user: DriveUser, token: string) => void,
   onAuthFailure?: () => void
 ) => {
+  // Check cached token first for instant reload support
+  const storedToken = getCachedToken();
+  const storedUser = getCachedUser();
+  if (storedToken && storedUser) {
+    if (onAuthSuccess) onAuthSuccess(storedUser, storedToken);
+  }
+
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user) {
-      if (cachedAccessToken) {
-        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      const token = getCachedToken();
+      if (token) {
+        const driveUser: DriveUser = {
+          displayName: user.displayName,
+          email: user.email,
+          photoURL: user.photoURL,
+          uid: user.uid,
+        };
+        if (onAuthSuccess) onAuthSuccess(driveUser, token);
       } else if (!isSigningIn) {
-        // In-memory token cleared on reload; user can sign in via 1 click
-        if (onAuthFailure) onAuthFailure();
+        if (!storedToken && onAuthFailure) onAuthFailure();
       }
     } else {
-      cachedAccessToken = null;
-      if (onAuthFailure) onAuthFailure();
+      if (!getCachedToken()) {
+        clearCachedAuth();
+        if (onAuthFailure) onAuthFailure();
+      }
     }
   });
 };
 
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+/**
+ * Sign in using Google Identity Services (GIS) token client.
+ * Highly robust on static hosts like GitHub Pages where Firebase Auth popups may hit unauthorized-domain.
+ */
+export const signInWithGIS = async (): Promise<{ user: DriveUser; accessToken: string }> => {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined" || !(window as any).google?.accounts?.oauth2) {
+      return reject(
+        new Error(
+          "Google Identity Services is still loading. Please check your internet connection and try again."
+        )
+      );
+    }
+
+    const clientId =
+      getCustomOAuthClientId() || (firebaseConfig as any).oAuthClientId;
+
+    if (!clientId) {
+      return reject(new Error("No Google OAuth Client ID found."));
+    }
+
+    try {
+      const tokenClient = (window as any).google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope:
+          "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email",
+        callback: async (tokenResponse: any) => {
+          if (tokenResponse.error) {
+            return reject(new Error(tokenResponse.error_description || tokenResponse.error));
+          }
+          const accessToken = tokenResponse.access_token;
+          if (!accessToken) {
+            return reject(new Error("No access token returned by Google"));
+          }
+
+          // Fetch user profile from google userinfo endpoint
+          try {
+            const userRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            let profile: DriveUser = { displayName: "Google User", email: "", photoURL: "" };
+            if (userRes.ok) {
+              const data = await userRes.json();
+              profile = {
+                displayName: data.name || data.given_name || "Google User",
+                email: data.email || "",
+                photoURL: data.picture || "",
+              };
+            }
+            setCachedToken(accessToken, profile, Number(tokenResponse.expires_in) || 3500);
+            resolve({ user: profile, accessToken });
+          } catch {
+            const fallbackUser: DriveUser = { displayName: "Google User", email: null, photoURL: null };
+            setCachedToken(accessToken, fallbackUser);
+            resolve({ user: fallbackUser, accessToken });
+          }
+        },
+      });
+
+      tokenClient.requestAccessToken({ prompt: "select_account" });
+    } catch (err: any) {
+      reject(err);
+    }
+  });
+};
+
+export const googleSignIn = async (
+  forceGIS = false
+): Promise<{ user: DriveUser; accessToken: string } | null> => {
+  if (forceGIS) {
+    return await signInWithGIS();
+  }
+
   try {
     isSigningIn = true;
     const result = await signInWithPopup(auth, provider);
@@ -53,10 +219,42 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
       throw new Error("Failed to get Google Drive access token from sign in");
     }
 
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
+    const driveUser: DriveUser = {
+      displayName: result.user.displayName,
+      email: result.user.email,
+      photoURL: result.user.photoURL,
+      uid: result.user.uid,
+    };
+
+    setCachedToken(credential.accessToken, driveUser);
+    return { user: driveUser, accessToken: credential.accessToken };
   } catch (error: any) {
-    console.error("Google Drive sign-in error:", error);
+    console.warn("Google Drive sign-in notice:", error?.code, error?.message);
+
+    // If unauthorized domain (GitHub Pages) or popup error, try GIS fallback
+    if (
+      error?.code === "auth/unauthorized-domain" ||
+      error?.code === "auth/popup-blocked" ||
+      error?.message?.includes("unauthorized")
+    ) {
+      try {
+        if ((window as any).google?.accounts?.oauth2) {
+          const gisRes = await signInWithGIS();
+          return gisRes;
+        }
+      } catch (gisErr: any) {
+        console.warn("GIS fallback also failed:", gisErr);
+      }
+
+      const customError: any = new Error(
+        `GitHub Pages domain "${window.location.hostname}" is not authorized for Google OAuth yet.`
+      );
+      customError.code = "auth/unauthorized-domain";
+      customError.isDomainUnauthorized = true;
+      customError.hostname = window.location.hostname;
+      throw customError;
+    }
+
     throw error;
   } finally {
     isSigningIn = false;
@@ -64,12 +262,16 @@ export const googleSignIn = async (): Promise<{ user: User; accessToken: string 
 };
 
 export const getAccessToken = async (): Promise<string | null> => {
-  return cachedAccessToken;
+  return getCachedToken();
 };
 
 export const googleSignOut = async (): Promise<void> => {
-  await signOut(auth);
-  cachedAccessToken = null;
+  try {
+    await signOut(auth);
+  } catch (e) {
+    console.warn("Firebase sign out warning:", e);
+  }
+  clearCachedAuth();
 };
 
 export const getCurrentUser = (): User | null => {
@@ -375,3 +577,154 @@ export async function uploadJournalToDrive(
     webViewLink: mdResult.webViewLink || audioResult.webViewLink,
   };
 }
+
+/**
+ * Pulls existing journal entries (markdown notes and audio recordings)
+ * from the user's Google Drive folder into the app.
+ */
+export async function pullJournalsFromDrive(
+  token: string,
+  folderId: string
+): Promise<{
+  importedEntries: JournalEntry[];
+  totalDriveFiles: number;
+  errors: string[];
+}> {
+  // 1. List all files in folder
+  const query = `'${folderId}' in parents and trashed = false`;
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(
+    query
+  )}&fields=files(id,name,mimeType,size,webViewLink,createdTime,modifiedTime)&pageSize=100`;
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || "Failed to list files from Google Drive folder");
+  }
+
+  const data = await res.json();
+  const files: any[] = data.files || [];
+
+  const mdFiles = files.filter((f) => f.name.endsWith(".md"));
+  const audioFiles = files.filter(
+    (f) => !f.name.endsWith(".md") && f.mimeType !== "application/vnd.google-apps.folder"
+  );
+
+  const importedEntries: JournalEntry[] = [];
+  const errors: string[] = [];
+
+  for (const mdFile of mdFiles) {
+    try {
+      // Fetch markdown content
+      const mdRes = await fetch(`https://www.googleapis.com/drive/v3/files/${mdFile.id}?alt=media`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!mdRes.ok) continue;
+      const mdText = await mdRes.text();
+
+      // Parse metadata from markdown
+      const titleMatch = mdText.match(/^#\s+(.+)$/m);
+      const title = titleMatch ? titleMatch[1].trim() : mdFile.name.replace(/\.md$/, "");
+
+      const moodMatch = mdText.match(/\*\*Mood\s*\/\s*Tone:\*\*\s*(.+)$/m);
+      const mood = moodMatch ? moodMatch[1].trim() : "Reflective";
+
+      const tagsMatch = mdText.match(/\*\*Tags:\*\*\s*(.+)$/m);
+      const userTags: string[] = tagsMatch
+        ? tagsMatch[1]
+            .split(/[, ]+/)
+            .map((t) => t.replace(/^#/, "").trim())
+            .filter(Boolean)
+        : [];
+
+      const summaryMatch = mdText.match(/## Executive Summary\s+([\s\S]*?)(?=##|$)/);
+      const summary = summaryMatch ? summaryMatch[1].trim() : "Voice reflection restored from Google Drive.";
+
+      const transcriptMatch = mdText.match(/## Transcript\s+([\s\S]*?)(?=##|$)/);
+      const transcript = transcriptMatch ? transcriptMatch[1].trim() : summary;
+
+      const audioNameMatch = mdText.match(/\*\*Audio File:\*\*\s*`([^`]+)`/);
+      const audioFileName = audioNameMatch ? audioNameMatch[1].trim() : mdFile.name.replace(/\.md$/, ".webm");
+
+      // Match corresponding audio file
+      const baseStem = mdFile.name.replace(/\.md$/, "");
+      const matchingAudio = audioFiles.find(
+        (a) => a.name === audioFileName || a.name.startsWith(baseStem)
+      );
+
+      let audioBlob: Blob;
+      let audioDuration = 10;
+
+      if (matchingAudio) {
+        try {
+          const audioRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${matchingAudio.id}?alt=media`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
+          );
+          if (audioRes.ok) {
+            audioBlob = await audioRes.blob();
+          } else {
+            audioBlob = new Blob([], { type: "audio/webm" });
+          }
+        } catch {
+          audioBlob = new Blob([], { type: "audio/webm" });
+        }
+      } else {
+        audioBlob = new Blob([], { type: "audio/webm" });
+      }
+
+      const createdTime = mdFile.createdTime ? new Date(mdFile.createdTime).getTime() : Date.now();
+      const dateFormatted = new Date(createdTime).toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+
+      const entry: JournalEntry = {
+        id: `drive_${mdFile.id}`,
+        timestamp: createdTime,
+        dateFormatted,
+        title,
+        mood,
+        keyThemes: [],
+        userTags,
+        summary,
+        actionItems: [],
+        transcript,
+        markdown: mdText,
+        audioBlob,
+        audioDuration,
+        audioFileName: matchingAudio?.name || audioFileName,
+        mdFileName: mdFile.name,
+        savedToFolder: false,
+        folderName: null,
+        transcriptionStatus: "completed",
+        engineUsed: "native",
+        driveSyncStatus: "synced",
+        driveAudioFileId: matchingAudio?.id,
+        driveMdFileId: mdFile.id,
+        driveParentFolderId: folderId,
+        driveWebViewLink: mdFile.webViewLink,
+      };
+
+      importedEntries.push(entry);
+    } catch (err: any) {
+      errors.push(`Error reading ${mdFile.name}: ${err.message}`);
+    }
+  }
+
+  return {
+    importedEntries,
+    totalDriveFiles: files.length,
+    errors,
+  };
+}
+

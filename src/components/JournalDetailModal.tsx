@@ -253,22 +253,26 @@ export const JournalDetailModal: React.FC<JournalDetailModalProps> = ({
               {copied ? "Copied" : "Copy .md"}
             </button>
 
-            {folderConfig.handle ? (
+            <button
+              onClick={() => {
+                handleDownloadMd();
+                handleDownloadAudio();
+              }}
+              className="min-h-[36px] px-3 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors flex items-center gap-1.5 text-xs font-semibold shadow-xs"
+              title="Download both markdown note and audio recording to your device"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download Files</span>
+            </button>
+
+            {folderConfig.handle && (
               <button
                 onClick={handleSaveToFolder}
                 disabled={isSavingToFolder}
-                className="min-h-[36px] px-3 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors flex items-center gap-1.5"
+                className="min-h-[36px] px-3 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-700 transition-colors flex items-center gap-1.5 text-xs font-medium"
               >
                 <FolderDown className="w-3.5 h-3.5" />
                 {isSavingToFolder ? "Saving..." : "Save to Folder"}
-              </button>
-            ) : (
-              <button
-                onClick={handleDownloadMd}
-                className="min-h-[36px] px-3 rounded-lg bg-stone-900 dark:bg-stone-100 text-white dark:text-stone-900 hover:bg-stone-800 dark:hover:bg-stone-200 transition-colors flex items-center gap-1.5"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Download .md
               </button>
             )}
 
@@ -281,7 +285,7 @@ export const JournalDetailModal: React.FC<JournalDetailModalProps> = ({
                     onShowMessage(e.message || "Drive upload failed", "error");
                   }
                 }}
-                className={`min-h-[36px] px-3 rounded-lg border transition-colors flex items-center gap-1.5 ${
+                className={`min-h-[36px] px-3 rounded-lg border transition-colors flex items-center gap-1.5 text-xs font-medium ${
                   entry.driveSyncStatus === "synced"
                     ? "border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300"
                     : "border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 text-stone-700 dark:text-stone-300 hover:bg-stone-100"
@@ -307,9 +311,19 @@ export const JournalDetailModal: React.FC<JournalDetailModalProps> = ({
         <div className="p-6 overflow-y-auto space-y-6">
           {/* Audio Player always on top */}
           <div>
-            <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider block mb-2">
-              Preserved Voice Recording ({entry.audioFileName})
-            </span>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-stone-500 uppercase tracking-wider block">
+                Preserved Voice Recording ({entry.audioFileName})
+              </span>
+              <button
+                onClick={handleDownloadAudio}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 font-medium"
+                title="Download raw audio file"
+              >
+                <Download className="w-3 h-3" />
+                <span>Download Audio</span>
+              </button>
+            </div>
             <AudioPlayer audioBlob={entry.audioBlob} duration={entry.audioDuration} />
           </div>
 

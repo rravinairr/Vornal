@@ -14,10 +14,11 @@ import {
   ExternalLink,
   Sparkles,
   Zap,
+  Download,
 } from "lucide-react";
 import { JournalEntry } from "../types";
 import { AudioPlayer } from "./AudioPlayer";
-import { shareJournalFiles } from "../utils/fileSync";
+import { shareJournalFiles, downloadJournalFiles } from "../utils/fileSync";
 import { getToneStyle } from "../utils/toneColors";
 
 interface JournalCardProps {
@@ -83,6 +84,17 @@ export const JournalCard: React.FC<JournalCardProps> = ({
     }
   };
 
+  const handleDownload = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    downloadJournalFiles(
+      entry.audioBlob,
+      entry.audioFileName,
+      entry.markdown,
+      entry.mdFileName
+    );
+    onShowMessage(`Downloaded ${entry.mdFileName} & audio!`, "success");
+  };
+
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
     onDelete(entry.id);
@@ -128,7 +140,7 @@ export const JournalCard: React.FC<JournalCardProps> = ({
             )}
 
             {/* Google Drive Status Badge */}
-            {entry.driveSyncStatus === "synced" && (
+            {isDriveConnected && entry.driveSyncStatus === "synced" && (
               <span
                 className="flex items-center gap-1 text-blue-600 dark:text-blue-400 text-[11px] font-medium"
                 title="Synced to Google Drive folder"
@@ -232,6 +244,16 @@ export const JournalCard: React.FC<JournalCardProps> = ({
               <span className="hidden sm:inline">AI</span>
             </button>
           )}
+
+          {/* Download Audio & Markdown */}
+          <button
+            onClick={handleDownload}
+            aria-label="Download audio and markdown files"
+            title="Download Audio & Markdown (.md)"
+            className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg text-stone-500 hover:text-stone-800 dark:hover:text-stone-200 hover:bg-white/60 dark:hover:bg-stone-800 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+          </button>
 
           <button
             onClick={handleCopy}
