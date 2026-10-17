@@ -210,7 +210,7 @@ export const BreathingOrb: React.FC<BreathingOrbProps> = ({
       */}
       <aside
         aria-label="Zen Breathing Animation Guide"
-        className="fixed bottom-6 left-6 z-30 select-none group pointer-events-auto"
+        className="fixed bottom-5 left-4 sm:left-6 sm:bottom-6 z-30 select-none group pointer-events-auto"
       >
         <button
           onClick={() => {

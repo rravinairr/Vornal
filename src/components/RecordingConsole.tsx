@@ -67,6 +67,7 @@ export const RecordingConsole: React.FC<RecordingConsoleProps> = ({
 }) => {
   const [newTagInput, setNewTagInput] = useState("");
   const [showTagInput, setShowTagInput] = useState(false);
+  const [showTechInfo, setShowTechInfo] = useState(false);
 
   const handleAddTag = (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,14 +115,14 @@ export const RecordingConsole: React.FC<RecordingConsoleProps> = ({
             type="button"
             onClick={() => onToggleEngine("native")}
             title="Runs 100% locally on device with Web Speech API. Zero API keys required."
-            className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all text-[11px] ${
+            className={`px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1.5 transition-all text-[11px] cursor-pointer ${
               transcriptionEngine === "native"
                 ? "bg-white dark:bg-stone-700 text-stone-900 dark:text-stone-100 shadow-xs"
                 : "text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
             }`}
           >
             <Zap className="w-3 h-3 text-emerald-500" />
-            <span>Native Speech (No API Key)</span>
+            <span>Without AI</span>
           </button>
         </div>
       </div>
@@ -165,7 +166,7 @@ export const RecordingConsole: React.FC<RecordingConsoleProps> = ({
                   style={{ backgroundColor: accentColorHex }}
                   className="w-2 h-2 rounded-full animate-ping inline-block"
                 />
-                Listening to your reflections... ({transcriptionEngine === "native" ? "Native Speech" : "Gemini AI"})
+                Listening to your reflections... ({transcriptionEngine === "native" ? "Without AI" : "Gemini AI"})
               </span>
             )}
           </div>
@@ -265,9 +266,25 @@ export const RecordingConsole: React.FC<RecordingConsoleProps> = ({
           <h3 className="text-base font-semibold text-stone-900 dark:text-stone-100">
             Tap to Record Voice Journal
           </h3>
-          <p className="text-xs text-stone-500 dark:text-stone-400 mt-1 max-w-sm mb-4">
-            Speak your reflections naturally. Finishing immediately transcribes, formats into Markdown (.md), and saves both audio and note to your device &amp; cloud.
-          </p>
+          <div className="mt-1 mb-4 max-w-sm text-center">
+            <p className="text-xs text-stone-500 dark:text-stone-400 inline-flex items-center justify-center gap-1.5 flex-wrap">
+              <span>Reflect through your words and come back through your breath to your full being.</span>
+              <button
+                type="button"
+                onClick={() => setShowTechInfo(!showTechInfo)}
+                aria-label="Toggle technical information"
+                title="Technical info on recording & formats"
+                className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-600 dark:text-stone-300 transition-colors cursor-pointer text-[10px] font-serif font-bold italic"
+              >
+                i
+              </button>
+            </p>
+            {showTechInfo && (
+              <p className="text-[11px] text-stone-500 dark:text-stone-400 mt-2 p-2.5 rounded-xl bg-stone-50 dark:bg-stone-800/80 border border-stone-200/80 dark:border-stone-700 text-left animate-in fade-in duration-150 leading-relaxed">
+                Speak your reflections naturally. Finishing immediately transcribes, formats into Markdown (.md), and saves both audio and note to your device &amp; cloud.
+              </p>
+            )}
+          </div>
 
           {/* Preset category tags */}
           <div className="w-full max-w-md pt-2 border-t border-stone-100 dark:border-stone-800/80">

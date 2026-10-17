@@ -30,6 +30,9 @@ import {
   BookOpen,
   Menu,
   RefreshCw,
+  RotateCcw,
+  Undo2,
+  X,
 } from "lucide-react";
 import {
   JournalEntry,
@@ -85,6 +88,8 @@ import { SidebarDrawer } from "./components/SidebarDrawer";
 import { FloatingRecordButton } from "./components/FloatingRecordButton";
 import { OnboardingModal } from "./components/OnboardingModal";
 import { GoogleDriveAuthHelpModal } from "./components/GoogleDriveAuthHelpModal";
+import { GeminiKeyModal } from "./components/GeminiKeyModal";
+import { getUserGeminiApiKey, transcribeWithClientGeminiKey } from "./utils/geminiClient";
 
 interface Toast {
   id: number;
@@ -110,6 +115,10 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const [deletedEntryForUndo, setDeletedEntryForUndo] = useState<{
+    entry: JournalEntry;
+    timeoutId: ReturnType<typeof setTimeout>;
+  } | null>(null);
 
   // Transcription Engine: Native Browser Speech by default (100% offline, zero API keys)
   const [transcriptionEngine, setTranscriptionEngine] = useState<TranscriptionEngine>("native");
@@ -128,6 +137,8 @@ export default function App() {
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [isAuthHelpModalOpen, setIsAuthHelpModalOpen] = useState(false);
+  const [isGeminiKeyModalOpen, setIsGeminiKeyModalOpen] = useState(false);
+  const [pendingRetryEntry, setPendingRetryEntry] = useState<JournalEntry | null>(null);
   const [isPullingDrive, setIsPullingDrive] = useState(false);
   const [autoDownloadFiles, setAutoDownloadFiles] = useState(false);
 
@@ -321,12 +332,27 @@ export default function App() {
   const handleToggleEngine = async (engine: TranscriptionEngine) => {
     setTranscriptionEngine(engine);
     await saveSettingToDB("vornal_transcription_engine", engine);
-    showToast(
-      engine === "native"
-        ? "Switched to Native Browser Speech (100% offline, zero API keys)"
-        : "Switched to Gemini AI (Executive summaries & tone insights)",
-      "info"
-    );
+
+    const isStaticHost =
+      typeof window !== "undefined" &&
+      (window.location.hostname.includes("github.io") ||
+        window.location.protocol === "file:");
+    const userGeminiKey = getUserGeminiApiKey();
+
+    if (engine === "gemini" && isStaticHost && !userGeminiKey) {
+      setIsGeminiKeyModalOpen(true);
+      showToast(
+        "Please enter your free Google Gemini API key to use AI mode on GitHub Pages.",
+        "info"
+      );
+    } else {
+      showToast(
+        engine === "native"
+          ? "Switched to Without AI mode (100% offline, zero API keys required)"
+          : "Switched to Gemini AI (Executive summaries & tone insights)",
+        "info"
+      );
+    }
   };
 
   const handleChangeThemeMode = async (mode: ThemeMode) => {
@@ -360,7 +386,7 @@ export default function App() {
     await handleSignInDrive(true);
   };
 
-  const handlePullFromDrive = async (passedToken?: string, passedFolderId?: string) => {
+  const handleFullSyncWithDrive = async (passedToken?: string, passedFolderId?: string) => {
     setIsPullingDrive(true);
     try {
       const token = passedToken || (await getAccessToken());
@@ -373,38 +399,61 @@ export default function App() {
         driveState.driveFolderId ||
         (await getOrCreateDriveFolder(token, driveState.driveFolderName || "Vornal Voice Vault")).folderId;
 
-      showToast("Pulling notes & audio from Google Drive folder...", "info");
-      const result = await pullJournalsFromDrive(token, folderId);
+      showToast("Syncing reflections between Drive & app...", "info");
 
-      if (result.importedEntries.length > 0) {
-        let importedCount = 0;
-        for (const imported of result.importedEntries) {
-          const exists = journals.some(
+      // Step 1: Pull newly created/modified reflections from Drive
+      const pullResult = await pullJournalsFromDrive(token, folderId);
+      let importedCount = 0;
+      let currentJournals = [...journals];
+
+      if (pullResult.importedEntries.length > 0) {
+        for (const imported of pullResult.importedEntries) {
+          const exists = currentJournals.some(
             (j) =>
               j.id === imported.id ||
               (j.title === imported.title && Math.abs(j.timestamp - imported.timestamp) < 60000)
           );
           if (!exists) {
             await saveJournalToDB(imported);
-            setJournals((prev) => [imported, ...prev]);
+            currentJournals = [imported, ...currentJournals];
             importedCount++;
           }
         }
+      }
 
-        if (importedCount > 0) {
-          showToast(
-            `Restored ${importedCount} reflection${importedCount === 1 ? "" : "s"} from Google Drive!`,
-            "success"
-          );
-        } else {
-          showToast("Your local vault is already up to date with Google Drive!", "info");
+      // Step 2: Upload local unsynced reflections to Drive
+      let uploadedCount = 0;
+      for (let i = 0; i < currentJournals.length; i++) {
+        const item = currentJournals[i];
+        if (item.driveSyncStatus !== "synced") {
+          try {
+            const res = await uploadJournalToDrive(token, item, folderId);
+            item.driveSyncStatus = "synced";
+            item.driveAudioFileId = res.audioFileId;
+            item.driveMdFileId = res.mdFileId;
+            item.driveParentFolderId = folderId;
+            item.driveWebViewLink = res.webViewLink;
+            await saveJournalToDB(item);
+            uploadedCount++;
+          } catch (uploadErr) {
+            console.warn(`Failed to upload ${item.title} to Drive during sync:`, uploadErr);
+          }
         }
+      }
+
+      setJournals([...currentJournals]);
+
+      if (importedCount > 0 || uploadedCount > 0) {
+        showToast(
+          `Sync complete: ${importedCount} pulled from Drive, ${uploadedCount} uploaded to Drive!`,
+          "success"
+        );
       } else {
-        showToast("No previous notes found in Google Drive folder.", "info");
+        showToast("App and Google Drive are already fully in sync!", "success");
       }
     } catch (err: any) {
-      console.error("Pull from Drive failed:", err);
-      showToast(err.message || "Failed to pull notes from Google Drive", "error");
+      console.error("Full sync with Drive failed:", err);
+      showToast(err.message || "Failed to sync with Google Drive", "error");
     } finally {
       setIsPullingDrive(false);
     }
@@ -434,7 +483,7 @@ export default function App() {
         showToast(`Connected as ${res.user.displayName || res.user.email}! Folder ready.`, "success");
 
         if (pullDataAfterLogin) {
-          await handlePullFromDrive(res.accessToken, folder.folderId);
+          await handleFullSyncWithDrive(res.accessToken, folder.folderId);
         }
       }
     } catch (err: any) {
@@ -487,10 +536,10 @@ export default function App() {
     }
   };
 
-  // Start recording handler (attaches Native Speech if selected)
+  // Start recording handler (attaches on-device speech recognizer in background)
   const handleStartRecording = async () => {
     nativeTranscriptRef.current = "";
-    if (transcriptionEngine === "native" && isNativeSpeechSupported()) {
+    if (isNativeSpeechSupported()) {
       try {
         const recognizer = createSpeechRecognizer();
         if (recognizer) {
@@ -768,28 +817,92 @@ export default function App() {
       setProcessingStep("Transcribing speech & analyzing reflections with Gemini AI...");
       const base64Data = await blobToBase64(audioBlob);
 
+      const isStaticHost =
+        typeof window !== "undefined" &&
+        (window.location.hostname.includes("github.io") ||
+          window.location.protocol === "file:");
+      const userGeminiKey = getUserGeminiApiKey();
+
       try {
-        const response = await fetch("/api/transcribe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            audioBase64: base64Data,
+        let aiResult: any = null;
+
+        if (userGeminiKey) {
+          setProcessingStep("Transcribing with Gemini AI using personal quota...");
+          aiResult = await transcribeWithClientGeminiKey(
+            userGeminiKey,
+            base64Data,
             mimeType,
-            dateString: date.toISOString(),
+            date.toISOString(),
             audioFileName,
-            userTags: currentTags,
-          }),
-        });
-
-        if (!response.ok) {
-          if (response.status === 404) {
-            throw new Error("AI server not detected (running on static host like GitHub Pages). Native Speech engine is active for 100% client-side transcription!");
+            currentTags
+          );
+        } else if (isStaticHost) {
+          // On static host like GitHub Pages without an API key, do NOT make a failing POST to /api/transcribe
+          if (nativeTranscriptRef.current && nativeTranscriptRef.current.trim()) {
+            const nativeFormatted = formatNativeMarkdown(
+              nativeTranscriptRef.current,
+              date,
+              audioFileName,
+              currentTags
+            );
+            aiResult = {
+              title: nativeFormatted.title,
+              mood: nativeFormatted.mood,
+              keyThemes: nativeFormatted.keyThemes,
+              summary: nativeFormatted.summary,
+              actionItems: nativeFormatted.actionItems,
+              transcript: nativeFormatted.transcript,
+              markdown: nativeFormatted.markdown,
+              isNativeFallback: true,
+            };
+          } else {
+            throw new Error(
+              "GitHub Pages requires a free Gemini API key for Gemini AI. Enter your key in Settings or use Native Speech."
+            );
           }
-          const errJson = await response.json().catch(() => ({}));
-          throw new Error(errJson.error || `Server responded with ${response.status}`);
-        }
+        } else {
+          const response = await fetch("/api/transcribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              audioBase64: base64Data,
+              mimeType,
+              dateString: date.toISOString(),
+              audioFileName,
+              userTags: currentTags,
+            }),
+          });
 
-        const aiResult = await response.json();
+          if (!response.ok) {
+            if (response.status === 404 || response.status === 405) {
+              if (nativeTranscriptRef.current && nativeTranscriptRef.current.trim()) {
+                const nativeFormatted = formatNativeMarkdown(
+                  nativeTranscriptRef.current,
+                  date,
+                  audioFileName,
+                  currentTags
+                );
+                aiResult = {
+                  title: nativeFormatted.title,
+                  mood: nativeFormatted.mood,
+                  keyThemes: nativeFormatted.keyThemes,
+                  summary: nativeFormatted.summary,
+                  actionItems: nativeFormatted.actionItems,
+                  transcript: nativeFormatted.transcript,
+                  markdown: nativeFormatted.markdown,
+                  isNativeFallback: true,
+                };
+              } else {
+                throw new Error("AI server not reachable. Please enter your free Gemini API key in Settings.");
+              }
+            } else {
+              const errJson = await response.json().catch(() => ({}));
+              throw new Error(errJson.error || `Server responded with ${response.status}`);
+            }
+          } else {
+            aiResult = await response.json();
+          }
+        }
 
         const completedEntry: JournalEntry = {
           ...initialEntry,
@@ -801,6 +914,7 @@ export default function App() {
           transcript: aiResult.transcript || "",
           markdown: aiResult.markdown || initialEntry.markdown,
           transcriptionStatus: "completed",
+          engineUsed: aiResult.isNativeFallback ? "native" : "gemini",
         };
 
         // Save to phone folder if configured, or download only if autoDownloadFiles is enabled
@@ -831,7 +945,12 @@ export default function App() {
           downloadJournalFiles(audioBlob, audioFileName, completedEntry.markdown, mdFileName);
           showToast(`Voice note & ${mdFileName} downloaded to device!`, "success");
         } else {
-          showToast("Reflection & audio preserved safely in vault!", "success");
+          showToast(
+            aiResult.isNativeFallback
+              ? "Transcribed with on-device speech! Add Gemini key in settings for AI summaries."
+              : "Reflection preserved safely in vault!",
+            "success"
+          );
         }
 
         // Auto-sync to Google Drive
@@ -839,7 +958,9 @@ export default function App() {
           try {
             const token = await getAccessToken();
             if (token) {
-              const folderId = driveState.driveFolderId || (await getOrCreateDriveFolder(token, driveState.driveFolderName || "Vornal Voice Vault")).folderId;
+              const folderId =
+                driveState.driveFolderId ||
+                (await getOrCreateDriveFolder(token, driveState.driveFolderName || "Vornal Voice Vault")).folderId;
               const driveRes = await uploadJournalToDrive(token, completedEntry, folderId);
               completedEntry.driveSyncStatus = "synced";
               completedEntry.driveAudioFileId = driveRes.audioFileId;
@@ -860,15 +981,21 @@ export default function App() {
         console.error("AI Transcription failed:", aiErr);
         const failedEntry: JournalEntry = {
           ...initialEntry,
-          summary: "Audio recording saved! AI transcription can be retried or converted using Native Speech.",
-          transcript: "Audio recorded safely. Click 'Transcribe Now' to retry or switch engine.",
+          summary: "Audio recording saved! Add your free Gemini API key in Settings to generate structured notes on GitHub Pages.",
+          transcript: "Audio recorded safely. Click 'Transcribe with Gemini' to enter key, or 'Format with Native Speech' to transcribe immediately.",
           transcriptionStatus: "failed",
           errorMessage: aiErr.message,
         };
         await saveJournalToDB(failedEntry);
         setJournals((prev) => prev.map((j) => (j.id === failedEntry.id ? failedEntry : j)));
-        showToast(`Voice note saved to vault! (${aiErr.message || "transient error"})`, "error");
         setSelectedEntry(failedEntry);
+
+        if (isStaticHost && !userGeminiKey) {
+          setPendingRetryEntry(failedEntry);
+          setIsGeminiKeyModalOpen(true);
+        } else {
+          showToast(`Voice note saved to vault! (${aiErr.message || "transient error"})`, "info");
+        }
       }
     } catch (err: any) {
       console.error("Recording error:", err);
@@ -880,32 +1007,61 @@ export default function App() {
   };
 
   const handleRetryTranscription = async (entry: JournalEntry) => {
+    const userGeminiKey = getUserGeminiApiKey();
+    const isStaticHost =
+      typeof window !== "undefined" &&
+      (window.location.hostname.includes("github.io") ||
+        window.location.protocol === "file:");
+
+    // If on static host and user doesn't have an API key, prompt with modal
+    if (!userGeminiKey && isStaticHost) {
+      setPendingRetryEntry(entry);
+      setIsGeminiKeyModalOpen(true);
+      return;
+    }
+
     try {
       setIsProcessing(true);
-      setProcessingStep("Retrying Gemini transcription...");
+      setProcessingStep("Transcribing reflection with Gemini AI...");
 
+      let aiResult: any = null;
       const base64Data = await blobToBase64(entry.audioBlob);
-      const response = await fetch("/api/transcribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audioBase64: base64Data,
-          mimeType: entry.audioBlob.type || "audio/webm",
-          dateString: new Date(entry.timestamp).toISOString(),
-          audioFileName: entry.audioFileName,
-          userTags: entry.userTags || [],
-        }),
-      });
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error("AI backend not found on static host. Use Native Speech transcription in settings!");
+      if (userGeminiKey) {
+        aiResult = await transcribeWithClientGeminiKey(
+          userGeminiKey,
+          base64Data,
+          entry.audioBlob.type || "audio/webm",
+          new Date(entry.timestamp).toISOString(),
+          entry.audioFileName,
+          entry.userTags || []
+        );
+      } else {
+        const response = await fetch("/api/transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            audioBase64: base64Data,
+            mimeType: entry.audioBlob.type || "audio/webm",
+            dateString: new Date(entry.timestamp).toISOString(),
+            audioFileName: entry.audioFileName,
+            userTags: entry.userTags || [],
+          }),
+        });
+
+        if (!response.ok) {
+          if (response.status === 404 || response.status === 405) {
+            setPendingRetryEntry(entry);
+            setIsGeminiKeyModalOpen(true);
+            return;
+          }
+          const errJson = await response.json().catch(() => ({}));
+          throw new Error(errJson.error || "Retry failed");
         }
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || "Retry failed");
+
+        aiResult = await response.json();
       }
 
-      const aiResult = await response.json();
       const updated: JournalEntry = {
         ...entry,
         title: aiResult.title || entry.title,
@@ -925,7 +1081,7 @@ export default function App() {
       setSelectedEntry(updated);
       showToast("Transcription completed with Gemini AI!", "success");
     } catch (err: any) {
-      showToast(`Retry failed: ${err.message}`, "error");
+      showToast(`Transcription error: ${err.message}`, "error");
     } finally {
       setIsProcessing(false);
       setProcessingStep("");
@@ -933,32 +1089,60 @@ export default function App() {
   };
 
   const handleEnhanceWithGemini = async (entry: JournalEntry) => {
+    const userGeminiKey = getUserGeminiApiKey();
+    const isStaticHost =
+      typeof window !== "undefined" &&
+      (window.location.hostname.includes("github.io") ||
+        window.location.protocol === "file:");
+
+    if (!userGeminiKey && isStaticHost) {
+      setPendingRetryEntry(entry);
+      setIsGeminiKeyModalOpen(true);
+      return;
+    }
+
     try {
       setIsProcessing(true);
       setProcessingStep("Enhancing reflection with Gemini AI...");
 
+      let aiResult: any = null;
       const base64Data = await blobToBase64(entry.audioBlob);
-      const response = await fetch("/api/transcribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          audioBase64: base64Data,
-          mimeType: entry.audioBlob.type || "audio/webm",
-          dateString: new Date(entry.timestamp).toISOString(),
-          audioFileName: entry.audioFileName,
-          userTags: entry.userTags || [],
-        }),
-      });
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error("AI server not detected on static host. Native Speech engine operates 100% offline without backend!");
+      if (userGeminiKey) {
+        aiResult = await transcribeWithClientGeminiKey(
+          userGeminiKey,
+          base64Data,
+          entry.audioBlob.type || "audio/webm",
+          new Date(entry.timestamp).toISOString(),
+          entry.audioFileName,
+          entry.userTags || []
+        );
+      } else {
+        const response = await fetch("/api/transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            audioBase64: base64Data,
+            mimeType: entry.audioBlob.type || "audio/webm",
+            dateString: new Date(entry.timestamp).toISOString(),
+            audioFileName: entry.audioFileName,
+            userTags: entry.userTags || [],
+          }),
+        });
+
+        if (!response.ok) {
+          if (response.status === 404 || response.status === 405) {
+            setPendingRetryEntry(entry);
+            setIsGeminiKeyModalOpen(true);
+            return;
+          }
+          const errJson = await response.json().catch(() => ({}));
+          throw new Error(errJson.error || `Server responded with ${response.status}`);
         }
-        const errJson = await response.json().catch(() => ({}));
-        throw new Error(errJson.error || `Server responded with ${response.status}`);
+
+        aiResult = await response.json();
       }
 
-      const aiResult = await response.json();
       const updated: JournalEntry = {
         ...entry,
         title: aiResult.title || entry.title,
@@ -985,12 +1169,77 @@ export default function App() {
     }
   };
 
+  const handleUseNativeSpeech = async (entry: JournalEntry) => {
+    const date = new Date(entry.timestamp);
+    const existingTranscript =
+      entry.transcript &&
+      !entry.transcript.startsWith("Audio recorded safely") &&
+      !entry.transcript.startsWith("Transcribing")
+        ? entry.transcript
+        : "Spoken reflection safely preserved in vault.";
+
+    const nativeFormatted = formatNativeMarkdown(
+      existingTranscript,
+      date,
+      entry.audioFileName,
+      entry.userTags || []
+    );
+
+    const updated: JournalEntry = {
+      ...entry,
+      title: nativeFormatted.title,
+      mood: nativeFormatted.mood,
+      keyThemes: nativeFormatted.keyThemes,
+      summary: nativeFormatted.summary,
+      actionItems: nativeFormatted.actionItems,
+      transcript: nativeFormatted.transcript,
+      markdown: nativeFormatted.markdown,
+      transcriptionStatus: "completed",
+      engineUsed: "native",
+      errorMessage: undefined,
+    };
+
+    await saveJournalToDB(updated);
+    setJournals((prev) => prev.map((j) => (j.id === updated.id ? updated : j)));
+    if (selectedEntry?.id === updated.id) {
+      setSelectedEntry(updated);
+    }
+    showToast("Converted to completed reflection note!", "success");
+  };
+
   const handleDeleteJournal = async (id: string) => {
+    const entryToDelete = journals.find((j) => j.id === id);
+    if (!entryToDelete) return;
+
+    if (deletedEntryForUndo?.timeoutId) {
+      clearTimeout(deletedEntryForUndo.timeoutId);
+    }
+
     await deleteJournalFromDB(id);
     setJournals((prev) => prev.filter((j) => j.id !== id));
     if (selectedEntry?.id === id) {
       setSelectedEntry(null);
     }
+
+    const timeoutId = setTimeout(() => {
+      setDeletedEntryForUndo(null);
+    }, 7000);
+
+    setDeletedEntryForUndo({
+      entry: entryToDelete,
+      timeoutId,
+    });
+  };
+
+  const handleUndoDelete = async () => {
+    if (!deletedEntryForUndo) return;
+    const { entry, timeoutId } = deletedEntryForUndo;
+    clearTimeout(timeoutId);
+
+    await saveJournalToDB(entry);
+    setJournals((prev) => [entry, ...prev].sort((a, b) => b.timestamp - a.timestamp));
+    setDeletedEntryForUndo(null);
+    showToast(`Restored "${entry.title}"!`, "success");
   };
 
   const handleUpdateEntry = async (updated: JournalEntry) => {
@@ -1052,12 +1301,12 @@ export default function App() {
             >
               <Mic className="w-5 h-5" />
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-baseline gap-2">
               <span className="font-bold tracking-tight text-lg font-serif text-stone-900 dark:text-stone-100">
                 Vornal
               </span>
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-md hidden xs:inline-block">
-                Vault
+              <span className="text-xs text-stone-500 dark:text-stone-400 font-serif italic hidden sm:inline">
+                "Your best friend is you."
               </span>
             </div>
           </div>
@@ -1083,17 +1332,17 @@ export default function App() {
               </button>
             ) : (
               <div className="flex items-center gap-1.5 shrink-0">
-                {/* Pull from Drive button */}
+                {/* Sync with Drive button (Bi-directional sync between Drive and app) */}
                 <button
                   type="button"
-                  onClick={() => handlePullFromDrive()}
+                  onClick={() => handleFullSyncWithDrive()}
                   disabled={isPullingDrive}
-                  title="Pull latest reflections from Google Drive"
-                  aria-label="Pull from Drive"
-                  className="min-h-[40px] px-2.5 rounded-xl border border-blue-200/80 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors flex items-center justify-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer"
+                  title="Sync recordings between Google Drive and app"
+                  aria-label="Sync with Google Drive"
+                  className="min-h-[40px] px-2.5 sm:px-3 rounded-xl border border-blue-200/80 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition-colors flex items-center justify-center gap-1.5 text-xs font-semibold shrink-0 cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isPullingDrive ? "animate-spin" : ""}`} />
-                  <span className="hidden md:inline">{isPullingDrive ? "Pulling..." : "Pull"}</span>
+                  <span className="hidden md:inline">{isPullingDrive ? "Syncing..." : "Sync"}</span>
                 </button>
 
                 {/* User avatar & sign out */}
@@ -1136,24 +1385,6 @@ export default function App() {
                 <Moon className="w-4 h-4 text-stone-600" />
               )}
             </button>
-
-            {/* Vault Feed Count Shortcut */}
-            <a
-              href="#vault-feed"
-              aria-label={`Journal Feed (${journals.length})`}
-              title={`Vault Library (${journals.length} reflections)`}
-              className="relative min-h-[40px] min-w-[40px] rounded-xl border border-stone-200/80 dark:border-stone-800 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-600 dark:text-stone-300 flex items-center justify-center transition-colors shrink-0"
-            >
-              <BookOpen className="w-4 h-4" />
-              {journals.length > 0 && (
-                <span
-                  style={{ backgroundColor: currentAccentHex }}
-                  className="absolute -top-1 -right-1 text-[9px] font-bold text-white px-1.5 py-0.2 rounded-full min-w-[16px] text-center shadow-xs"
-                >
-                  {journals.length}
-                </span>
-              )}
-            </a>
 
             {/* Menu Drawer Toggle Button (Three-line option - guaranteed visible) */}
             <button
@@ -1285,13 +1516,13 @@ export default function App() {
         </section>
       </main>
 
-      {/* Footer */}
-      <footer className="mt-auto border-t border-stone-200/80 dark:border-stone-800 py-6 px-4 sm:px-6 text-xs text-stone-500 dark:text-stone-400 text-center pb-safe">
+      {/* Footer (Elevated with ample bottom clearance so floating controls never overlap) */}
+      <footer className="mt-auto border-t border-stone-200/80 dark:border-stone-800 pt-8 pb-32 sm:pb-28 px-4 sm:px-24 text-xs text-stone-500 dark:text-stone-400 text-center pb-safe">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-stone-800 dark:text-stone-200">Vornal</span>
             <span>•</span>
-            <span>The Mindful Voice Journal &amp; Markdown Vault</span>
+            <span className="font-serif italic text-stone-600 dark:text-stone-400">"Your best friend is you."</span>
           </div>
 
           <div className="flex items-center gap-4">
@@ -1303,13 +1534,45 @@ export default function App() {
             </button>
             <button
               onClick={() => setIsThemeModalOpen(true)}
-              className="hover:text-stone-800 dark:hover:text-stone-200 font-medium"
+              className="hover:text-stone-800 dark:hover:text-stone-200 font-medium cursor-pointer"
             >
               Theme &amp; Colors
             </button>
           </div>
         </div>
       </footer>
+
+      {/* Undo Note Deletion Notification Banner (Centered, elevated above footer) */}
+      {deletedEntryForUndo && (
+        <aside
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-stone-900/95 dark:bg-stone-100/95 text-stone-100 dark:text-stone-900 shadow-2xl backdrop-blur-md border border-stone-700 dark:border-stone-300 animate-in slide-in-from-bottom-4 duration-200 select-none"
+        >
+          <span className="text-xs font-medium truncate max-w-[180px] sm:max-w-xs">
+            Deleted reflection "{deletedEntryForUndo.entry.title}"
+          </span>
+          <button
+            type="button"
+            onClick={handleUndoDelete}
+            className="px-2.5 py-1 rounded-xl bg-amber-500 hover:bg-amber-600 text-stone-950 font-bold text-xs shadow-xs transition-transform active:scale-95 cursor-pointer flex items-center gap-1.5"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Undo</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (deletedEntryForUndo?.timeoutId) clearTimeout(deletedEntryForUndo.timeoutId);
+              setDeletedEntryForUndo(null);
+            }}
+            className="text-stone-400 hover:text-stone-200 dark:hover:text-stone-800 p-0.5 cursor-pointer"
+            aria-label="Dismiss undo notification"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </aside>
+      )}
 
       {/* Journal Detail Modal */}
       {selectedEntry && (
@@ -1322,6 +1585,7 @@ export default function App() {
           onUpdateEntry={handleUpdateEntry}
           onRetryTranscription={handleRetryTranscription}
           onEnhanceWithGemini={handleEnhanceWithGemini}
+          onUseNativeSpeech={handleUseNativeSpeech}
           onUploadToDrive={handleSyncSingleToDrive}
           onShowMessage={showToast}
         />
@@ -1338,7 +1602,6 @@ export default function App() {
         onSignOutDrive={handleSignOutDrive}
         onSyncAllToDrive={handleSyncAllToDrive}
         onOpenFolderManager={() => setIsDriveFolderModalOpen(true)}
-        totalJournalsCount={journals.length}
         unsyncedDriveCount={unsyncedDriveCount}
         folderConfig={folderConfig}
         onUpdateFolderConfig={handleUpdateFolderConfig}
@@ -1349,7 +1612,7 @@ export default function App() {
         onOpenAuthHelpModal={() => setIsAuthHelpModalOpen(true)}
         onShowMessage={showToast}
         accentColorHex={currentAccentHex}
-        onPullFromDrive={handlePullFromDrive}
+        onPullFromDrive={handleFullSyncWithDrive}
         isPullingDrive={isPullingDrive}
         autoDownloadFiles={autoDownloadFiles}
         onToggleAutoDownloadFiles={handleToggleAutoDownloadFiles}
@@ -1414,8 +1677,27 @@ export default function App() {
         onChangeCustomHex={handleChangeCustomHex}
       />
 
-      {/* Toast Notifications */}
-      <div className="fixed bottom-6 left-6 z-50 flex flex-col gap-2 pointer-events-none max-w-sm">
+      {/* Client-Side Gemini AI Key Modal for GitHub Pages */}
+      <GeminiKeyModal
+        isOpen={isGeminiKeyModalOpen}
+        onClose={() => {
+          setIsGeminiKeyModalOpen(false);
+          setPendingRetryEntry(null);
+        }}
+        onKeySavedAndTranscribe={() => {
+          if (pendingRetryEntry) {
+            handleRetryTranscription(pendingRetryEntry);
+          }
+        }}
+        onUseNativeSpeechFallback={() => {
+          if (pendingRetryEntry) {
+            handleUseNativeSpeech(pendingRetryEntry);
+          }
+        }}
+      />
+
+      {/* Toast Notifications (Elevated so they never collide with the breathing orb or record button) */}
+      <div className="fixed bottom-28 left-4 sm:left-6 z-50 flex flex-col gap-2 pointer-events-none max-w-sm">
         {toasts.map((toast) => (
           <div
             key={toast.id}

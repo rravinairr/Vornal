@@ -1,5 +1,6 @@
 # Vornal — The Sovereign Voice Journal & Markdown Vault
 
+> *"Your best friend is you."*  
 > *"Our most profound reflections and sudden epiphanies happen when we speak freely, not when we stare at an intimidating blank screen."*  
 > — **Ideated & Envisioned by Ravi Nair**
 
@@ -7,7 +8,7 @@
 
 ## 🌿 The Philosophy Behind Vornal
 
-In a digital landscape dominated by algorithmic noise, rigid templates, and proprietary walled gardens, **Vornal** was conceived with a single guiding principle: **radical cognitive sovereignty**.
+In a digital landscape dominated by algorithmic noise, rigid templates, and proprietary walled gardens, **Vornal** was conceived with a single guiding principle: **radical cognitive sovereignty** — because *"your best friend is you."*
 
 When we sit before an empty text editor, an inner critic awakens. We backspace, we hesitate, we restructure sentences, and we censor our own emotional truth. But when we speak aloud—walking in the woods, driving home from work, pacing a room, or winding down before sleep—our thoughts flow in an unfiltered stream of consciousness.
 
@@ -15,14 +16,15 @@ Vornal serves as a mindful, zero-friction sanctuary:
 1. **Voice-First Empathy**: Speaking is 3–4× faster than typing. It bypasses executive dysfunction and cognitive fatigue.
 2. **Neurodivergent & ADHD Friendly**: Eliminates the cognitive penalty of formatting, categorizing, and typing during moments of mental overwhelm.
 3. **Dual Preservation**: Every reflection preserves both the **raw authentic human voice recording** and a **structured, clean Markdown note (`.md`)**.
-4. **Data Sovereignty (Local-First)**: Your recordings, transcripts, and reflections never belong to a proprietary SaaS silo. They belong entirely to you.
+4. **Data Sovereignty & Zero Cookies**: No cookies are ever used. Your recordings, transcripts, and reflections reside strictly in your private local browser storage (IndexedDB) and personal Google Drive folder.
+5. **Instant Undo Protection**: Accidental deletions can be reversed with a single click within a 7-second grace window.
 
 ---
 
 ## 💎 Core Architectural Pillars
 
 ### 1. Dual Speech Engine Architecture
-* **Native Speech Engine (100% Offline & Free)**: Powered directly by the browser's native Web Speech API. Zero audio leaves your computer or phone. Zero server calls, zero telemetry, and zero API costs.
+* **Without AI (100% Offline & Free)**: Powered directly by the browser's native Web Speech API. Zero audio leaves your computer or phone. Zero server calls, zero telemetry, and zero API costs.
 * **Gemini AI Engine (Structured Reflection)**: For deep introspection, Gemini parses stream-of-consciousness audio to extract:
   - Emotional Mood & Tone
   - Key Reflection Themes
@@ -35,8 +37,9 @@ Vornal serves as a mindful, zero-friction sanctuary:
 * **Client-Side BYOK**: Any user can enter their own free Gemini API key from [Google AI Studio](https://aistudio.google.com/app/apikey). The key is stored solely in their personal browser's `localStorage` and sent directly to Google from the client.
 
 ### 3. Google Drive Cloud Vault
-* **Two-Way Reflection Sovereignty**: Connect your Google account to automatically back up recordings and notes into your custom Google Drive folder (`/Vornal Voice Vault`).
-* **Cross-Device Reflection Pull**: Click **"Pull from Drive"** to download your existing reflections and audio files onto any device or fresh browser session.
+* **Two-Way Reflection Sync**: Connect your Google account to automatically back up recordings and notes into your custom Google Drive folder (`/Vornal Voice Vault`).
+* **Cross-Device Reflection Sync**: Click **"Sync"** in the top bar to bi-directionally sync your recordings: it pulls any notes from Google Drive into your local vault and backs up any unsynced local recordings to Drive.
+* **Zero Tracking Cookies**: Login state and access tokens are held in temporary memory and `localStorage`. No cookies are set.
 * **Privacy By Default**: First-time visitors can choose to continue offline without logging in. When offline, all Google Drive sync buttons and indicators are cleanly hidden, leaving only a non-intrusive "Login to save" option.
 
 ### 4. Direct Device Storage & On-Demand Downloads

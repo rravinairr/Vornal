@@ -31,7 +31,7 @@ export const FloatingRecordButton: React.FC<FloatingRecordButtonProps> = ({
       <div
         role="region"
         aria-label="Active Recording Controller"
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 p-2 bg-stone-900/95 dark:bg-stone-900/95 text-white backdrop-blur-xl border border-stone-700/80 rounded-full shadow-2xl animate-in slide-in-from-bottom-3 duration-200 select-none"
+        className="fixed bottom-5 right-4 sm:right-6 sm:bottom-6 z-30 flex items-center gap-2 p-2 bg-stone-900/95 dark:bg-stone-900/95 text-white backdrop-blur-xl border border-stone-700/80 rounded-full shadow-2xl animate-in slide-in-from-bottom-3 duration-200 select-none"
       >
         {/* Pulsating recording indicator & timer */}
         <div className="flex items-center gap-2 px-3 py-1">
@@ -90,7 +90,7 @@ export const FloatingRecordButton: React.FC<FloatingRecordButtonProps> = ({
       disabled={isProcessing}
       aria-label="Start Voice Recording"
       title="Record new reflection (floating at all times)"
-      className="fixed bottom-6 right-6 z-40 group flex items-center gap-2 p-3.5 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 hover:scale-108 active:scale-95 text-white disabled:opacity-50 select-none cursor-pointer"
+      className="fixed bottom-5 right-4 sm:right-6 sm:bottom-6 z-30 group flex items-center gap-2 p-3.5 rounded-full shadow-xl hover:shadow-2xl transition-all duration-200 hover:scale-108 active:scale-95 text-white disabled:opacity-50 select-none cursor-pointer"
       style={{
         backgroundColor: accentColorHex,
         boxShadow: `0 8px 24px ${accentColorHex}55`,

@@ -15,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   Cloud,
+  Zap,
 } from "lucide-react";
 import { JournalEntry, FolderConfig } from "../types";
 import { AudioPlayer } from "./AudioPlayer";
@@ -34,6 +35,7 @@ interface JournalDetailModalProps {
   onUpdateEntry: (updated: JournalEntry) => void;
   onRetryTranscription?: (entry: JournalEntry) => void;
   onEnhanceWithGemini?: (entry: JournalEntry) => void;
+  onUseNativeSpeech?: (entry: JournalEntry) => void;
   onUploadToDrive?: (entry: JournalEntry) => Promise<void>;
   onShowMessage: (msg: string, type?: "success" | "info" | "error") => void;
 }
@@ -49,6 +51,7 @@ export const JournalDetailModal: React.FC<JournalDetailModalProps> = ({
   onUpdateEntry,
   onRetryTranscription,
   onEnhanceWithGemini,
+  onUseNativeSpeech,
   onUploadToDrive,
   onShowMessage,
 }) => {
@@ -420,14 +423,28 @@ export const JournalDetailModal: React.FC<JournalDetailModalProps> = ({
                   </p>
                 )}
               </div>
-              <button
-                onClick={() => onRetryTranscription(entry)}
-                disabled={isProcessing}
-                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50 transition-colors flex items-center gap-2 shrink-0 self-start sm:self-auto"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? "animate-spin" : ""}`} />
-                <span>{isProcessing ? "Transcribing..." : "Transcribe Now"}</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => onRetryTranscription(entry)}
+                  disabled={isProcessing}
+                  className="px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50 transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isProcessing ? "animate-spin" : ""}`} />
+                  <span>{isProcessing ? "Transcribing..." : "Transcribe with Gemini"}</span>
+                </button>
+                {onUseNativeSpeech && (
+                  <button
+                    type="button"
+                    onClick={() => onUseNativeSpeech(entry)}
+                    disabled={isProcessing}
+                    className="px-3 py-2 rounded-xl bg-white dark:bg-stone-850 hover:bg-stone-100 dark:hover:bg-stone-800 text-stone-800 dark:text-stone-200 border border-stone-200 dark:border-stone-700 text-xs font-semibold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>Format with Native Speech</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

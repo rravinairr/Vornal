@@ -119,6 +119,12 @@ export const AboutPrivacyModal: React.FC<AboutPrivacyModalProps> = ({ isOpen, on
               <div className="flex items-start gap-2.5">
                 <Lock className="w-4 h-4 text-stone-400 mt-0.5 shrink-0" />
                 <div>
+                  <strong className="text-stone-800 dark:text-stone-200">Zero Cookies Used</strong>: Vornal does not use cookies to track, store user profiles, or retain sessions. Temporary OAuth access tokens are stored in browser memory/localStorage, and notes reside solely in private IndexedDB on your device.
+                </div>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <Lock className="w-4 h-4 text-stone-400 mt-0.5 shrink-0" />
+                <div>
                   <strong className="text-stone-800 dark:text-stone-200">Personal Google Drive Only</strong>: When you connect Google Drive, Vornal requests only the restricted <code>drive.file</code> scope. It can only see and manage files created by this app in your chosen folder.
                 </div>
               </div>
@@ -134,8 +140,8 @@ export const AboutPrivacyModal: React.FC<AboutPrivacyModalProps> = ({ isOpen, on
 
         {/* Footer */}
         <div className="mt-2 pt-4 border-t border-stone-100 dark:border-stone-800 flex items-center justify-between">
-          <span className="text-[11px] text-stone-400">
-            Vornal • Built with mindful intent
+          <span className="text-[11px] font-serif italic text-stone-500 dark:text-stone-400">
+            Vornal • "Your best friend is you."
           </span>
           <button
             onClick={onClose}
